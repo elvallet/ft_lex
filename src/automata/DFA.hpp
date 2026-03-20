@@ -1,0 +1,26 @@
+/**
+ * @file DFA.hpp
+ * @brief Deterministic finite automaton representation.
+ */
+
+#pragma once
+
+#include <vector>
+#include <unordered_map>
+#include <unordered_set>
+
+namespace automata {
+
+/**
+ * @brief Deterministic finite automaton.
+ */
+struct DFA {
+	/** @brief Initial DFA state id. */
+	int											initial_state_;
+	/** @brief Set of accepting DFA states. */
+	std::unordered_set<int>						final_states_;
+	/** @brief Transition table: state -> (symbol -> next state). */
+	std::vector<std::unordered_map<char, int>>	transitions_;
+};
+
+} // namespace automata

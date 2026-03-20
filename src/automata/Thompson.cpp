@@ -1,13 +1,22 @@
+/**
+ * @file Thompson.cpp
+ * @brief Implementation of Thompson NFA construction.
+ */
 #include "Thompson.hpp"
 #include <stack>
 #include <stdexcept>
 
 using namespace automata; using namespace std;
 
-NFA Thompson::compile(const vector<Token>& postfixe) {
+/**
+ * @brief Compile postfix regex tokens into an NFA.
+ * @param postfix Regex tokens in postfix notation.
+ * @return Constructed NFA.
+ */
+NFA Thompson::compile(const vector<Token>& postfix) {
 	stack<Fragment>	worklist;
 
-	for (const Token& t : postfixe) {
+	for (const Token& t : postfix) {
 		switch (t.type_)
 		{
 		case CHAR:
@@ -87,6 +96,10 @@ NFA Thompson::compile(const vector<Token>& postfixe) {
 	return nfa_;
 }
 
+/**
+ * @brief Add one state to the current NFA.
+ * @return Newly allocated state id.
+ */
 int Thompson::add_state() {
 	int	id = nfa_.transitions_.size();
 
@@ -96,6 +109,11 @@ int Thompson::add_state() {
 	return id;
 }
 
+/**
+ * @brief Resolve dangling outputs to a target state.
+ * @param out Outputs to patch.
+ * @param target Target state id.
+ */
 void Thompson::patch(vector<DanglingOut>&out, int target) {
 	for (const auto &o : out) {
 		if (o.is_epsilon_) {
@@ -106,6 +124,11 @@ void Thompson::patch(vector<DanglingOut>&out, int target) {
 	}
 }
 
+/**
+ * @brief Create an NFA fragment for a literal symbol.
+ * @param c Input symbol.
+ * @return Literal fragment.
+ */
 Fragment Thompson::make_literal(char c) {
 	int first_state		= add_state();
 	int second_state	= add_state();
@@ -122,12 +145,24 @@ Fragment Thompson::make_literal(char c) {
 	return frag;
 }
 
+/**
+ * @brief Concatenate two fragments.
+ * @param a Left fragment.
+ * @param b Right fragment.
+ * @return Concatenated fragment.
+ */
 Fragment Thompson::make_concat(Fragment a, Fragment b) {
 	patch(a.out_, b.start_);
 
 	return Fragment{a.start_, b.out_};
 }
 
+/**
+ * @brief Build alternation between two fragments.
+ * @param a First branch fragment.
+ * @param b Second branch fragment.
+ * @return Union fragment.
+ */
 Fragment Thompson::make_union(Fragment a, Fragment b) {
 	int s	= add_state();
 
@@ -138,6 +173,11 @@ Fragment Thompson::make_union(Fragment a, Fragment b) {
 	return Fragment{s, std::move(a.out_)};
 }
 
+/**
+ * @brief Apply Kleene star to a fragment.
+ * @param a Input fragment.
+ * @return Star fragment.
+ */
 Fragment Thompson::make_star(Fragment a) {
 	int s	= add_state();
 
@@ -150,6 +190,11 @@ Fragment Thompson::make_star(Fragment a) {
 	return Fragment{s, v};
 }
 
+/**
+ * @brief Apply one-or-more operator to a fragment.
+ * @param a Input fragment.
+ * @return Plus fragment.
+ */
 Fragment Thompson::make_plus(Fragment a) {
 	int s	= add_state();
 
@@ -162,6 +207,11 @@ Fragment Thompson::make_plus(Fragment a) {
 	return Fragment{a.start_, v};
 }
 
+/**
+ * @brief Apply zero-or-one operator to a fragment.
+ * @param a Input fragment.
+ * @return Question-mark fragment.
+ */
 Fragment Thompson::make_question(Fragment a) {
 	int s	= add_state();
 

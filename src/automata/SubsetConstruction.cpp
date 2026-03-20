@@ -1,9 +1,18 @@
+/**
+ * @file SubsetConstruction.cpp
+ * @brief Implementation of subset construction and DFA completion.
+ */
+
 #include "SubsetConstruction.hpp"
 #include <stack>
 
-
 using namespace automata; using namespace std;
 
+/**
+ * @brief Build a DFA from an NFA using subset construction.
+ * @param nfa Source NFA.
+ * @return Equivalent DFA.
+ */
 DFA SubsetConstruction::build(const NFA& nfa) {
 	DFA				dfa;
 	stack<uint64_t>	worklist;
@@ -35,6 +44,11 @@ DFA SubsetConstruction::build(const NFA& nfa) {
 	return dfa;
 }
 
+/**
+ * @brief Ensure all DFA states have transitions for each alphabet symbol.
+ * @param dfa DFA to complete in place.
+ * @param nfa Source NFA used to access the alphabet.
+ */
 void SubsetConstruction::complete(DFA& dfa, const NFA& nfa) {
 	const int	SINK = dfa.transitions_.size();
 	bool		sink_needed = false;
@@ -57,6 +71,12 @@ void SubsetConstruction::complete(DFA& dfa, const NFA& nfa) {
 	}
 }
 
+/**
+ * @brief Compute epsilon-closure from a bitmask of NFA states.
+ * @param nfa Source NFA.
+ * @param states Input state bitmask.
+ * @return Closure bitmask.
+ */
 uint64_t SubsetConstruction::epsilon_closure(const NFA& nfa, uint64_t states) {
 	uint64_t	res = 0;
 	stack<int>	worklist;
@@ -81,6 +101,13 @@ uint64_t SubsetConstruction::epsilon_closure(const NFA& nfa, uint64_t states) {
 	return res;
 }
 
+/**
+ * @brief Apply one symbol move to a set of NFA states.
+ * @param nfa Source NFA.
+ * @param states Input state bitmask.
+ * @param symbol Transition symbol.
+ * @return Destination states bitmask.
+ */
 uint64_t SubsetConstruction::delta(const NFA& nfa, uint64_t states, char symbol) {
 	uint64_t	res = 0;
 	uint64_t	tmp = states;
@@ -98,16 +125,18 @@ uint64_t SubsetConstruction::delta(const NFA& nfa, uint64_t states, char symbol)
 	return res;
 }
 
+/**
+ * @brief Derive accepting DFA states from discovered NFA subsets.
+ * @param nfa Source NFA.
+ * @return Set of accepting DFA state ids.
+ */
 unordered_set<int> SubsetConstruction::final_states(const NFA& nfa) {
-	unordered_set<int>	res;
+	unordered_set<int> res;
+	int final_bit = nfa.final_states_.front();
 
 	for (auto& [mask, dfa_id] : seen_) {
-		for (auto f : nfa.final_states_) {
-			if (mask & (1ULL << f)) {
-				res.insert(dfa_id);
-				break;
-			}
-		}
+		if (mask & (1ULL << final_bit))
+			res.insert(dfa_id);
 	}
 
 	return res;
