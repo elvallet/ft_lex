@@ -10,7 +10,22 @@ LexParser::LexParser(const std::string& filename)
 
 LexFile LexParser::parse()
 {
+	parse_definitions();
 
+	auto peeked	= reader_.peek();
+	if (!peeked)
+		throw ParseError("Missing rules definitions", reader_.context(), 0);
+	reader_.next();
+
+	lex_file_.rules_	= parse_rules();
+
+	peeked = reader_.peek();
+	if (peeked) {
+		reader_.next();
+		parse_user_code();
+	}
+
+	return lex_file_;
 }
 
 namespace {
@@ -278,4 +293,20 @@ pair<string, string> LexParser::parse_macro_line(const string& line)
 		throw ParseError("Invalid macro: regex cannot be empty", reader_.context(), i);
 
 	return {name, regex};
+}
+
+void LexParser::parse_user_code()
+{
+	string	res;
+	auto peeked = reader_.peek();
+	while (peeked) {
+		auto next = reader_.next();
+		if (res.empty())
+			res += next->content_;
+		else
+			res += "\n" + next->content_;
+		peeked = reader_.peek();
+	}
+
+	lex_file_.verbatim_bottom_	= res;
 }

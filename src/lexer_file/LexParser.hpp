@@ -28,6 +28,8 @@ private:
 	std::string							parse_verbatim_block(const std::string& line);
 	std::pair<std::string, std::string>	parse_macro_line(const std::string& line);
 
+	void parse_user_code();
+	
 	LineReader	reader_;
 	LexFile		lex_file_;
 };
