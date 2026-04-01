@@ -1,0 +1,3 @@
+%%
+{UNDEFINED}+    { printf("TOKEN\n"); }
+%%

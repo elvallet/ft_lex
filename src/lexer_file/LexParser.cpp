@@ -225,10 +225,10 @@ void LexParser::parse_definitions()
 			continue;
 		}
 
-		if (peeked->content_.starts_with("%{")) {
+		if (peeked->content_.rfind("%{", 0) == 0) {
 			auto line = reader_.next();
 			lex_file_.verbatim_top_ += parse_verbatim_block(line->content_);
-		} else if (peeked->content_.starts_with("%")) {
+		} else if (!peeked->content_.empty() && peeked->content_[0] == '%') {
 			throw ParseError("Unsupported directive", reader_.context(), 0);
 		} else {
 			auto line = reader_.next();
@@ -323,8 +323,8 @@ void LexParser::expand_macros()
 		for (size_t j = i + 1; j < lex_file_.macros_.size(); j++) {
 			size_t pos = 0;
 			while ((pos = lex_file_.macros_[j].second.find(pattern, pos)) != string::npos) {
-				lex_file_.macros_[j].second.replace(pos, pattern.length(), macro.second);
-				pos += macro.second.length();
+				lex_file_.macros_[j].second.replace(pos, pattern.length(), "(" + macro.second + ")");
+				pos += macro.second.length() + 2;
 			}
 		}
 	}
@@ -337,8 +337,8 @@ void LexParser::expand_rules()
 			string pattern = "{" + macro.first + "}";
 			size_t pos = 0;
 			while ((pos = rule.pattern_.find(pattern, pos)) != string::npos) {
-				rule.pattern_.replace(pos, pattern.length(), macro.second);
-				pos += macro.second.length();
+				rule.pattern_.replace(pos, pattern.length(), "(" + macro.second + ")");
+				pos += macro.second.length() + 2;
 			}
 		}
 	}
