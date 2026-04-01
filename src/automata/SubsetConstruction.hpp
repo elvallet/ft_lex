@@ -57,7 +57,7 @@ private:
 	 * @param nfa Source NFA.
 	 * @return Set of accepting DFA state ids.
 	 */
-	std::unordered_set<int>	final_states(const NFA& nfa);
+	std::unordered_map<int, int>	final_states(const NFA& nfa);
 };
 
 } // namespace automata

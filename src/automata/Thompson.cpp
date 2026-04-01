@@ -13,7 +13,8 @@ using namespace automata; using namespace std;
  * @param postfix Regex tokens in postfix notation.
  * @return Constructed NFA.
  */
-NFA Thompson::compile(const vector<Token>& postfix) {
+NFA Thompson::compile(const vector<Token>& postfix, int index) {
+	nfa_ = NFA();
 	stack<Fragment>	worklist;
 
 	for (const Token& t : postfix) {
@@ -91,7 +92,7 @@ NFA Thompson::compile(const vector<Token>& postfix) {
 
 	patch(frag.out_, final);
 	nfa_.initial_state_	= frag.start_;
-	nfa_.final_states_	= {final};
+	nfa_.final_states_	= {{final, index}};
 
 	return nfa_;
 }

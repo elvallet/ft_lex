@@ -5,6 +5,7 @@
 
 #include "SubsetConstruction.hpp"
 #include <stack>
+#include <climits>
 
 using namespace automata; using namespace std;
 
@@ -130,13 +131,19 @@ uint64_t SubsetConstruction::delta(const NFA& nfa, uint64_t states, char symbol)
  * @param nfa Source NFA.
  * @return Set of accepting DFA state ids.
  */
-unordered_set<int> SubsetConstruction::final_states(const NFA& nfa) {
-	unordered_set<int> res;
-	int final_bit = nfa.final_states_.front();
+unordered_map<int, int> SubsetConstruction::final_states(const NFA& nfa) {
+	unordered_map<int, int> res;
 
 	for (auto& [mask, dfa_id] : seen_) {
-		if (mask & (1ULL << final_bit))
-			res.insert(dfa_id);
+		int min_rule = INT_MAX;
+		for (auto& [final_bit, rule_index] : nfa.final_states_) {
+			if (mask & (1ULL << final_bit)) {
+				min_rule = min(min_rule, rule_index);
+			}
+		}
+		if (min_rule != INT_MAX) {
+			res[dfa_id] = min_rule;
+		}
 	}
 
 	return res;

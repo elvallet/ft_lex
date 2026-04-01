@@ -9,6 +9,7 @@
 #include "Parser.hpp"
 #include "Thompson.hpp"
 #include "SubsetConstruction.hpp"
+#include "../lexer_file/LexFile.hpp"
 
 namespace automata {
 
@@ -22,9 +23,11 @@ public:
 	 * @param regex Regex expression in infix form.
 	 * @return Complete DFA generated from the regex.
 	 */
-	DFA execute(const std::string& regex);
+	DFA execute(const std::vector<lexer_file::Rule>& rules);
 
 private:
+	NFA merge(const std::vector<NFA>& nfas);
+
 	/** @brief Regex parser instance. */
 	Parser				parser_;
 	/** @brief Thompson NFA builder instance. */
