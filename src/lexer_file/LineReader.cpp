@@ -2,6 +2,9 @@
 
 using namespace lexer_file; using namespace std;
 
+/**
+ * @brief Open input stream and initialize parser context.
+ */
 LineReader::LineReader(const string &filename)
     : file_(filename)
 {
@@ -11,6 +14,9 @@ LineReader::LineReader(const string &filename)
 	context_.line_number_   = 0;
 }
 
+/**
+ * @brief Return and consume the next logical line.
+ */
 optional<PhysicalLine> LineReader::next()
 {
 	if (lookahead_.has_value()) {
@@ -23,6 +29,9 @@ optional<PhysicalLine> LineReader::next()
 	return read_logical_line();
 }
 
+/**
+ * @brief Return the next logical line without consuming it.
+ */
 optional<PhysicalLine> LineReader::peek()
 {
 	if (lookahead_.has_value())
@@ -32,6 +41,9 @@ optional<PhysicalLine> LineReader::peek()
 	return lookahead_;
 }
 
+/**
+ * @brief Build one logical line from one or more physical lines.
+ */
 optional<PhysicalLine> LineReader::read_logical_line()
 {
 	string	logical_content;

@@ -2,12 +2,18 @@
 
 using namespace lexer_file; using namespace std;
 
+/**
+ * @brief Construct a parser bound to a lexer source file.
+ */
 LexParser::LexParser(const std::string& filename)
 	: reader_(filename)
 {
 
 }
 
+/**
+ * @brief Parse the full lexer file in section order.
+ */
 LexFile LexParser::parse()
 {
 	parse_definitions();
@@ -33,23 +39,29 @@ LexFile LexParser::parse()
 
 namespace {
 
+/**
+ * @brief Check whether a character is ASCII whitespace.
+ */
 bool is_whitespace(char c)
 {
 	return (c >= 9 && c <= 13) || c == 32;
 }
 
+/** @brief Trim trailing characters in-place. */
 string& rtrim(string& s, const char* t)
 {
 	s.erase(s.find_last_not_of(t) + 1);
 	return s;
 }
 
+/** @brief Trim leading characters in-place. */
 string& ltrim(string& s, const char* t)
 {
 	s.erase(0, s.find_first_not_of(t));
 	return s;
 }
 
+/** @brief Trim leading and trailing characters in-place. */
 string& trim(string& s, const char* t)
 {
 	return (ltrim(rtrim(s, t), t));
@@ -102,6 +114,9 @@ pair<string, string> LexParser::split_pattern_action(const std::string& raw)
 	return {pattern, trim(action, " \t\n\r\f\v") };
 }
 
+/**
+ * @brief Lexical state used while scanning C/C++ action blocks.
+ */
 enum class State {
 	NORMAL,
 	STRING,
@@ -110,6 +125,9 @@ enum class State {
 	BLOCK_COMMENT
 };
 
+/**
+ * @brief Read continuation lines until action braces are balanced.
+ */
 string LexParser::complete_action(const string& partial)
 {
 	string	result	= partial;
@@ -158,6 +176,9 @@ string LexParser::complete_action(const string& partial)
 	return result;
 }
 
+/**
+ * @brief Parse one rule and resolve its action body.
+ */
 Rule LexParser::parse_single_rule(const string& line)
 {
 	auto split = split_pattern_action(line);
@@ -179,6 +200,9 @@ Rule LexParser::parse_single_rule(const string& line)
 	return Rule{split.first, completed_action, false};
 }
 
+/**
+ * @brief Parse all rule entries from the rules section.
+ */
 vector<Rule> LexParser::parse_rules()
 {
 	vector<Rule>	v;
@@ -214,6 +238,9 @@ vector<Rule> LexParser::parse_rules()
 	return v;
 }
 
+/**
+ * @brief Parse file definitions until first `%%`.
+ */
 void LexParser::parse_definitions()
 {
 	while (true) {
@@ -237,6 +264,9 @@ void LexParser::parse_definitions()
 	}
 }
 
+/**
+ * @brief Parse `%{ ... %}` verbatim block content.
+ */
 string LexParser::parse_verbatim_block(const string& line)
 {
 	string res;
@@ -261,6 +291,9 @@ string LexParser::parse_verbatim_block(const string& line)
 	return res;
 }
 
+/**
+ * @brief Parse a macro definition line (`NAME regex`).
+ */
 pair<string, string> LexParser::parse_macro_line(const string& line)
 {
 	string	name;
@@ -298,6 +331,9 @@ pair<string, string> LexParser::parse_macro_line(const string& line)
 	return {name, regex};
 }
 
+/**
+ * @brief Parse and store remaining user code after rules.
+ */
 void LexParser::parse_user_code()
 {
 	string	res;
@@ -314,6 +350,9 @@ void LexParser::parse_user_code()
 	lex_file_.verbatim_bottom_	= res;
 }
 
+/**
+ * @brief Expand macro references across macro definitions.
+ */
 void LexParser::expand_macros()
 {
 	for (size_t i = 0; i < lex_file_.macros_.size(); i++) {
@@ -330,6 +369,9 @@ void LexParser::expand_macros()
 	}
 }
 
+/**
+ * @brief Expand macros in rule patterns and detect unresolved names.
+ */
 void LexParser::expand_rules()
 {
 	for (auto& rule : lex_file_.rules_) {

@@ -3,6 +3,9 @@
 
 using namespace lexer_file; using namespace std;
 
+/**
+ * @brief Construct an error using explicit file/line/column coordinates.
+ */
 ParseError::ParseError(const string& msg, const string& file, int line, int column)
 	: filename_(file), line_(line), column_(column)
 {
@@ -16,6 +19,9 @@ ParseError::ParseError(const string& msg, const string& file, int line, int colu
 	}
 }
 
+/**
+ * @brief Construct an error using a parse context and optional column.
+ */
 ParseError::ParseError(const string& msg, const ParseContext& context, int column)
 	: filename_(context.filename_), line_(context.line_number_), column_(column)
 {
