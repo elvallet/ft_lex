@@ -25,6 +25,9 @@ LexFile LexParser::parse()
 		parse_user_code();
 	}
 
+	expand_macros();
+	expand_rules();
+	
 	return lex_file_;
 }
 
@@ -309,4 +312,46 @@ void LexParser::parse_user_code()
 	}
 
 	lex_file_.verbatim_bottom_	= res;
+}
+
+void LexParser::expand_macros()
+{
+	for (size_t i = 0; i < lex_file_.macros_.size(); i++) {
+		auto& macro = lex_file_.macros_[i];
+		string pattern = "{" + macro.first + "}";
+		
+		for (size_t j = i + 1; j < lex_file_.macros_.size(); j++) {
+			size_t pos = 0;
+			while ((pos = lex_file_.macros_[j].second.find(pattern, pos)) != string::npos) {
+				lex_file_.macros_[j].second.replace(pos, pattern.length(), macro.second);
+				pos += macro.second.length();
+			}
+		}
+	}
+}
+
+void LexParser::expand_rules()
+{
+	for (auto& rule : lex_file_.rules_) {
+		for (auto& macro : lex_file_.macros_) {
+			string pattern = "{" + macro.first + "}";
+			size_t pos = 0;
+			while ((pos = rule.pattern_.find(pattern, pos)) != string::npos) {
+				rule.pattern_.replace(pos, pattern.length(), macro.second);
+				pos += macro.second.length();
+			}
+		}
+	}
+
+	for (auto& rule : lex_file_.rules_) {
+		size_t pos = rule.pattern_.find('{');
+		if (pos != string::npos) {
+			size_t end_pos = rule.pattern_.find('}', pos);
+			if (end_pos != string::npos) {
+				char first = rule.pattern_[pos + 1];
+				if (isalpha(first) || first == '_')
+					throw ParseError("Undefined macro in pattern", reader_.context(), pos);
+			}
+		}
+	}
 }

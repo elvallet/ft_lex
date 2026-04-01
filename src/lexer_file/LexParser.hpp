@@ -29,7 +29,10 @@ private:
 	std::pair<std::string, std::string>	parse_macro_line(const std::string& line);
 
 	void parse_user_code();
-	
+
+	void expand_macros();
+	void expand_rules();
+
 	LineReader	reader_;
 	LexFile		lex_file_;
 };
