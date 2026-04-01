@@ -10,12 +10,13 @@ LexParser::LexParser(const std::string& filename)
 
 LexFile LexParser::parse()
 {
-	
+
 }
 
 namespace {
 
-bool is_whitespace(char c) {
+bool is_whitespace(char c)
+{
 	return (c >= 9 && c <= 13) || c == 32;
 }
 
@@ -193,4 +194,88 @@ vector<Rule> LexParser::parse_rules()
 		v[i].action_ = v[j].action_;
 	}
 	return v;
+}
+
+void LexParser::parse_definitions()
+{
+	while (true) {
+		auto peeked	= reader_.peek();
+		if (!peeked || peeked->content_ == "%%")
+			break;
+		if (peeked->content_.empty()) {
+			reader_.next();
+			continue;
+		}
+
+		if (peeked->content_.starts_with("%{")) {
+			auto line = reader_.next();
+			lex_file_.verbatim_top_ += parse_verbatim_block(line->content_);
+		} else if (peeked->content_.starts_with("%")) {
+			throw ParseError("Unsupported directive", reader_.context(), 0);
+		} else {
+			auto line = reader_.next();
+			lex_file_.macros_.push_back(parse_macro_line(line->content_));
+		}
+	}
+}
+
+string LexParser::parse_verbatim_block(const string& line)
+{
+	string res;
+
+	if (line != "%{") {
+		throw ParseError("'%{' should always be followed by a new line", reader_.context(), 3);
+	}
+
+	auto peeked = reader_.peek();
+	while (peeked && peeked->content_ != "%}") {
+		auto next = reader_.next();
+		if (res.empty())
+			res += next->content_;
+		else
+			res += "\n" + next->content_;
+		peeked = reader_.peek();
+	}
+	if (!peeked)
+		throw ParseError("Unclosed verbatim block '%{", reader_.context(), 0);
+
+	reader_.next();
+	return res;
+}
+
+pair<string, string> LexParser::parse_macro_line(const string& line)
+{
+	string	name;
+	string	regex;
+
+	char c = line[0];
+	if (!(islower(c) || isupper(c) || c == '_')) {
+		throw ParseError("Invalid character in macro", reader_.context(), 0);
+	}
+
+	size_t	i	= 0;
+	while (i < line.size()) {
+		c = line[i];
+
+		if (is_whitespace(c)) {
+			break;
+		}
+		if (isalnum(c) || c == '_') {
+			name.push_back(c);
+		} else {
+			throw ParseError("Invalid character in macro", reader_.context(), i);
+		}
+		i++;
+	}
+
+	if (i >= line.size())
+		throw ParseError("Invalid macro: regex cannot be empty", reader_.context(), i);
+
+	string	remaining	= line.substr(i);
+	regex = trim(remaining, " \t\n\r\f\v");
+
+	if (regex.empty()) 
+		throw ParseError("Invalid macro: regex cannot be empty", reader_.context(), i);
+
+	return {name, regex};
 }

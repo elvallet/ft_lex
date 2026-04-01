@@ -23,6 +23,11 @@ private:
 	std::pair<std::string, std::string>	split_pattern_action(const std::string& raw);
 	std::string							complete_action(const std::string& partial);
 
+	void parse_definitions();
+
+	std::string							parse_verbatim_block(const std::string& line);
+	std::pair<std::string, std::string>	parse_macro_line(const std::string& line);
+
 	LineReader	reader_;
 	LexFile		lex_file_;
 };
