@@ -1,6 +1,6 @@
 /**
  * @file Pipeline.cpp
- * @brief Implementation of the high-level regex-to-DFA pipeline.
+ * @brief Implementation of the high-level multi-rule regex-to-DFA pipeline.
  */
 #include "Pipeline.hpp"
 #include <stdexcept>
@@ -8,9 +8,9 @@
 using namespace automata;
 
 /**
- * @brief Run parser, Thompson construction, subset construction, and completion.
- * @param regex Regex expression in infix notation.
- * @return Fully constructed DFA.
+ * @brief Compile all rules, merge NFAs, build DFA, then complete transitions.
+ * @param rules Ordered lexer rules (priority = lowest index).
+ * @return Fully constructed DFA for the full rule set.
  */
 DFA ParsingPipeline::execute(const std::vector<lexer_file::Rule>& rules) {
 	thompson_ = Thompson();

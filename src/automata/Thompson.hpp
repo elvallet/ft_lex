@@ -42,6 +42,7 @@ public:
 	/**
 	 * @brief Compile a postfix token sequence into an NFA.
 	 * @param postfix Regex tokens in postfix form.
+	 * @param index Rule index assigned to this regex.
 	 * @return Constructed NFA.
 	 */
 	NFA compile(const std::vector<Token>& postfix, int index);

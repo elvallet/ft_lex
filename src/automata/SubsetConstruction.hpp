@@ -55,7 +55,10 @@ private:
 	/**
 	 * @brief Compute DFA accepting states from discovered subsets.
 	 * @param nfa Source NFA.
-	 * @return Set of accepting DFA state ids.
+	 * @return Map of DFA accepting state id -> selected rule index.
+	 *
+	 * When a subset contains multiple NFA final states, the smallest rule index
+	 * is selected to preserve lexer rule priority.
 	 */
 	std::unordered_map<int, int>	final_states(const NFA& nfa);
 };

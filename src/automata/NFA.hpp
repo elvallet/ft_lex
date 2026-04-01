@@ -18,7 +18,7 @@ struct NFA
 {
 	/** @brief Initial NFA state id. */
 	int														initial_state_;
-	/** @brief Accepting NFA states. */
+	/** @brief Accepting NFA states: state id -> originating rule index. */
 	std::unordered_map<int, int>							final_states_;
 	/** @brief Symbol transitions: state -> (symbol -> destination states). */
 	std::vector<std::unordered_map<char, std::vector<int>>>	transitions_;

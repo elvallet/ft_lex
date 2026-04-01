@@ -11,6 +11,7 @@ using namespace automata; using namespace std;
 /**
  * @brief Compile postfix regex tokens into an NFA.
  * @param postfix Regex tokens in postfix notation.
+ * @param index Rule index attached to produced accepting states.
  * @return Constructed NFA.
  */
 NFA Thompson::compile(const vector<Token>& postfix, int index) {

@@ -129,7 +129,10 @@ uint64_t SubsetConstruction::delta(const NFA& nfa, uint64_t states, char symbol)
 /**
  * @brief Derive accepting DFA states from discovered NFA subsets.
  * @param nfa Source NFA.
- * @return Set of accepting DFA state ids.
+ * @return Map of accepting DFA state ids to the selected rule index.
+ *
+ * If several rule finals are present in one subset, the smallest rule index
+ * is kept.
  */
 unordered_map<int, int> SubsetConstruction::final_states(const NFA& nfa) {
 	unordered_map<int, int> res;
