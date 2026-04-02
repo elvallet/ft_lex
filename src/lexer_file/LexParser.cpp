@@ -157,6 +157,8 @@ string LexParser::complete_action(const string& partial)
 					if (c == '\\')		{ i++; break; }
 					if (c == '\'')		state = State::NORMAL;
 					break;
+				case State::LINE_COMMENT:
+					break;
 				case State::BLOCK_COMMENT:
 					if (c == '*' && i+1 < s.size() && s[i+1] == '/') { state = State::NORMAL; i++; }
 					break;

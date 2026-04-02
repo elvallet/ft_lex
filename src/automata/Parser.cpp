@@ -41,10 +41,10 @@ vector<Token> Parser::tokenize_and_insert_concat(const string& regex) {
 							c == '?' ? QUESTION :
 								c == '(' ? LPAREN :
 									c == ')' ? RPAREN :
-										throw runtime_error("Invalid character :" + c);
+										throw runtime_error(string("Invalid character: ") + c);
 
 		if (!tokens.empty() && should_insert_concat(tokens.back(), t))
-			tokens.push_back(Token{CONCAT});
+			tokens.push_back(Token{CONCAT, '\0'});
 
 		tokens.push_back(t);
 	}
