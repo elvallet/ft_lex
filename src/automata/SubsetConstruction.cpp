@@ -42,6 +42,10 @@ DFA SubsetConstruction::build(const NFA& nfa) {
 		}
 	}
 	dfa.final_states_ = final_states(nfa);
+
+	while (dfa.transitions_.size() < static_cast<size_t>(id))
+		dfa.transitions_.push_back({});
+		
 	return dfa;
 }
 

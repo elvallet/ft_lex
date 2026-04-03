@@ -1,6 +1,6 @@
 #include "Codegen.hpp"
 #include "yylex_template.h"
-
+#include <iostream>
 #include <stdexcept>
 
 using namespace codegen;
@@ -99,6 +99,14 @@ void Codegen::write_prologue(const lexer_file::LexFile& lexfile)
 void Codegen::write_tables(const automata::DFA& dfa)
 {
 	const size_t	nb_states	= dfa.transitions_.size();
+
+	//for (size_t i = 0; i < dfa.transitions_.size(); i++) {
+	//	std::cerr << "State " << i;
+	//	if (dfa.final_states_.count(i)) std::cerr << " (ACCEPT rule " << dfa.final_states_.at(i) << ")";
+	//	std::cerr << ":\n";
+	//	for (auto& [c, dest] : dfa.transitions_[i])
+	//		std::cerr << "  '" << c << "' -> " << dest << "\n";
+	//}
 
 	// Dense transition table indexed by [state][unsigned char]. Missing edges -> -1.
 	out_ << "static int yy_table[" << nb_states << "][256] = {" << std::endl;

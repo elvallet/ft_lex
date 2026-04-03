@@ -5,6 +5,9 @@
 ft_lex
 *yylex_template.h
 /obj
+scanner
+stub.c
+lex.yy.c
 
 # Compiled Object files
 *.slo

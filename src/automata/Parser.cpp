@@ -34,14 +34,12 @@ vector<Token> Parser::tokenize_and_insert_concat(const string& regex) {
 
 		t.value_	= c;
 		t.type_		=
-			isalnum(c) ? CHAR :
-				c == '|' ? UNION :
-					c == '*' ? STAR :
-						c == '+' ? PLUS :
-							c == '?' ? QUESTION :
-								c == '(' ? LPAREN :
-									c == ')' ? RPAREN :
-										throw runtime_error(string("Invalid character: ") + c);
+			c == '|' ? UNION :
+				c == '*' ? STAR :
+					c == '+' ? PLUS :
+						c == '?' ? QUESTION :
+							c == '(' ? LPAREN :
+								c == ')' ? RPAREN : CHAR;
 
 		if (!tokens.empty() && should_insert_concat(tokens.back(), t))
 			tokens.push_back(Token{CONCAT, '\0'});

@@ -2,8 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ECHO do { fwrite(yybuffer + yybuf_pos - 1, 1, 1, stdout); } while(0)
+#define ECHO do { fwrite(yybuffer + match_start, 1, 1, stdout); } while(0)
 #define YYBUF_INIT_SIZE 256
+
+int yywrap(void);
 
 static char		*yybuffer	= NULL;
 static size_t	yybuf_size	= 0;
@@ -85,8 +87,8 @@ int yylex(void) {
 		yybuf_pos	= last_match_pos;
 		match_start	= last_match_pos;
 
-		swicth (last_match) {
-			@@RULES@@
+		switch (last_match) {
+@@RULES@@
 		}
 	}
 }
