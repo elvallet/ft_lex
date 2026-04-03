@@ -7,6 +7,12 @@ using namespace codegen;
 
 namespace {
 
+/**
+ * @brief Replace all occurrences of a marker in a template string.
+ * @param text Mutable template content.
+ * @param from Marker to replace.
+ * @param to Replacement content.
+ */
 void replace_all(std::string& text, const std::string& from, const std::string& to)
 {
 	if (from.empty())
@@ -19,9 +25,15 @@ void replace_all(std::string& text, const std::string& from, const std::string& 
 	}
 }
 
+/**
+ * @brief Build code injected near the start of yylex().
+ * @param lexfile Parsed lexer file.
+ * @return Concatenated verbatim rule snippets.
+ */
 std::string build_verbatim_rules(const lexer_file::LexFile& lexfile)
 {
 	std::string out;
+
 	for (size_t i = 0; i < lexfile.verbatim_rules_.size(); ++i) {
 		out += lexfile.verbatim_rules_[i];
 		out += "\n";
@@ -29,9 +41,15 @@ std::string build_verbatim_rules(const lexer_file::LexFile& lexfile)
 	return out;
 }
 
+/**
+ * @brief Build the switch body dispatching matched rule indices to actions.
+ * @param lexfile Parsed lexer file.
+ * @return Generated C switch cases.
+ */
 std::string build_rules_switch(const lexer_file::LexFile& lexfile)
 {
 	std::string out;
+
 	for (size_t i = 0; i < lexfile.rules_.size(); ++i) {
 		out += "\t\t\tcase ";
 		out += std::to_string(i);
@@ -46,31 +64,46 @@ std::string build_rules_switch(const lexer_file::LexFile& lexfile)
 
 } // namespace
 
+/**
+ * @brief Generate scanner output by writing all sections in order.
+ * @param dfa Deterministic automaton.
+ * @param lexfile Parsed lexer file.
+ * @param out Output file path.
+ */
 void Codegen::generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, const std::string& out)
 {
 	out_.open(out.c_str());
 	if (!out_.is_open())
 		throw std::runtime_error("Failed to open output file: " + out);
 
+	// Generated file layout: prologue + tables + yylex + epilogue.
 	write_prologue(lexfile);
 	write_tables(dfa);
 	write_yylex(dfa, lexfile);
 	write_epilogue(lexfile);
 }
 
+/**
+ * @brief Emit the top verbatim block from the lexer file.
+ * @param lexfile Parsed lexer file.
+ */
 void Codegen::write_prologue(const lexer_file::LexFile& lexfile)
 {
 	out_ << lexfile.verbatim_top_ << std::endl;
 }
 
+/**
+ * @brief Emit transition and accept tables used by generated yylex().
+ * @param dfa Deterministic automaton.
+ */
 void Codegen::write_tables(const automata::DFA& dfa)
 {
 	const size_t	nb_states	= dfa.transitions_.size();
-	const char	tab			= '\t';
 
+	// Dense transition table indexed by [state][unsigned char]. Missing edges -> -1.
 	out_ << "static int yy_table[" << nb_states << "][256] = {" << std::endl;
 	for (size_t i = 0; i < nb_states; i++) {
-		out_ << tab << "{ ";
+		out_ << "\t{ ";
 		bool first = true;
 		for (int c = 0; c < 256; c++) {
 			if (!first) {
@@ -89,6 +122,7 @@ void Codegen::write_tables(const automata::DFA& dfa)
 	}
 	out_ << "};" << std::endl;
 
+	// yy_accept[state] stores winning rule index, or -1 if non-accepting.
 	out_ << "static int yy_accept[" << nb_states << "] = { ";
 	bool first = true;
 	for (size_t i = 0; i < nb_states; i++) {
@@ -107,13 +141,20 @@ void Codegen::write_tables(const automata::DFA& dfa)
 	out_ << "};" << std::endl;
 }
 
+/**
+ * @brief Emit yylex() from the embedded template.
+ * @param dfa Deterministic automaton.
+ * @param lexfile Parsed lexer file.
+ */
 void Codegen::write_yylex(const automata::DFA& dfa, const lexer_file::LexFile& lexfile)
 {
+	// yylex.template.c is embedded as a byte array in yylex_template.h.
 	std::string tmpl(
 		reinterpret_cast<const char*>(yylex_template_c),
 		yylex_template_c_len
 	);
 
+	// Replace placeholders with generated fragments.
 	replace_all(tmpl, "@@INITIAL_STATE@@", std::to_string(dfa.initial_state_));
 	replace_all(tmpl, "@@VERBATIM_RULES@@", build_verbatim_rules(lexfile));
 	replace_all(tmpl, "@@RULES@@", build_rules_switch(lexfile));
@@ -121,6 +162,10 @@ void Codegen::write_yylex(const automata::DFA& dfa, const lexer_file::LexFile& l
 	out_ << tmpl;
 }
 
+/**
+ * @brief Emit the trailing user C code section.
+ * @param lexfile Parsed lexer file.
+ */
 void Codegen::write_epilogue(const lexer_file::LexFile& lexfile)
 {
 	out_ << lexfile.verbatim_bottom_;
