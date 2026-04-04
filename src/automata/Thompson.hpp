@@ -6,6 +6,7 @@
 #pragma once
 
 #include <vector>
+#include <bitset>
 
 #include "NFA.hpp"
 #include "Token.hpp"
@@ -65,6 +66,12 @@ private:
 
 	/** @brief Build a literal fragment for a single symbol. */
 	Fragment	make_literal(char c);
+	/**
+	 * @brief Build a character class fragment from an ASCII bitset.
+	 * @param charset Bitset where bit i enables transition for ASCII code i (0 <= i < 128).
+	 * @return Fragment that accepts one character from the provided class.
+	 */
+	Fragment	make_charclass(const std::bitset<128>& charset);
 	/** @brief Concatenate two fragments. */
 	Fragment	make_concat(Fragment a, Fragment b);
 	/** @brief Build alternation between two fragments. */

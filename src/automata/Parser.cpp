@@ -7,18 +7,20 @@
 #include <stdexcept>
 #include <stack>
 #include <map>
+#include <bitset>
 
 using namespace automata; using namespace std;
 
 namespace {
+	char translate_escaped_char(char c);
 
-	void add_ascii_char(vector<bool>& allowed, int c) {
+	void add_ascii_char(bitset<128>& allowed, int c) {
 		if (c < 0 || c > 127)
 			throw runtime_error("Character class only supports ASCII characters");
-		allowed[c] = true;
+		allowed.set(static_cast<size_t>(c));
 	}
 
-	void add_named_class(vector<bool>& allowed, const string& name) {
+	void add_named_class(bitset<128>& allowed, const string& name) {
 		if (name == "alpha") {
 			for (int c = 'a'; c <= 'z'; ++c) add_ascii_char(allowed, c);
 			for (int c = 'A'; c <= 'Z'; ++c) add_ascii_char(allowed, c);
@@ -87,7 +89,7 @@ namespace {
 			if (name.empty())
 				throw runtime_error("Empty named character class");
 
-			vector<bool> allowed(128, false);
+			bitset<128> allowed;
 			add_named_class(allowed, name);
 			pos = legacy ? close + 1 : close + 2;
 
@@ -102,33 +104,17 @@ namespace {
 		return {static_cast<unsigned char>(regex[pos++])};
 	}
 
-	vector<Token> build_char_class_tokens(const vector<bool>& allowed) {
-		vector<Token> tokens;
-		bool first = true;
-
-		for (int c = 0; c < 128; ++c) {
-			if (!allowed[c])
-				continue;
-			if (!first)
-				tokens.push_back(Token{UNION, '\0'});
-			tokens.push_back(Token{CHAR, static_cast<char>(c)});
-			first = false;
-		}
-
-		if (tokens.empty())
+	vector<Token> build_char_class_tokens(const bitset<128>& allowed) {
+		if (allowed.none())
 			throw runtime_error("Empty character class");
 
-		if (tokens.size() == 1)
-			return tokens;
-
-		tokens.insert(tokens.begin(), Token{LPAREN, '\0'});
-		tokens.push_back(Token{RPAREN, '\0'});
-		return tokens;
+		return {Token(CHARCLASS, allowed)};
 	}
 
 	vector<Token> build_wildcard_tokens() {
-		vector<bool> allowed(128, true);
-		allowed['\n'] = false;
+		bitset<128> allowed;
+		allowed.set();
+		allowed.reset('\n');
 		return build_char_class_tokens(allowed);
 	}
 
@@ -158,7 +144,7 @@ namespace {
 	}
 
 	vector<Token> parse_char_class(const string& regex, size_t* i) {
-		vector<bool> allowed(128, false);
+		bitset<128> allowed;
 		size_t pos = *i + 1;
 		bool negate = false;
 		bool first = true;
@@ -187,18 +173,22 @@ namespace {
 			}
 
 			if (pos < regex.size() && regex[pos] == '-' && pos + 1 < regex.size() && regex[pos + 1] != ']' && atom.size() == 1) {
-				++pos;
-				vector<int> end_atom = parse_char_class_atom(regex, pos);
-				if (end_atom.size() != 1)
-					throw runtime_error("Invalid range in character class");
-				if (atom[0] > end_atom[0])
-					throw runtime_error("Invalid range in character class");
+			size_t dash_pos = pos;
+			++pos;
+			vector<int> end_atom = parse_char_class_atom(regex, pos);
+			if (end_atom.size() == 1 && atom[0] <= end_atom[0]) {
 				for (int c = atom[0]; c <= end_atom[0]; ++c)
 					add_ascii_char(allowed, c);
 			} else {
 				for (int c : atom)
 					add_ascii_char(allowed, c);
+				add_ascii_char(allowed, '-');
+				pos = dash_pos + 1;
 			}
+		} else {
+			for (int c : atom)
+				add_ascii_char(allowed, c);
+		}
 
 			first = false;
 		}
@@ -210,7 +200,7 @@ namespace {
 
 		if (negate) {
 			for (int c = 0; c < 128; ++c)
-				allowed[c] = !allowed[c];
+				allowed.flip(static_cast<size_t>(c));
 		}
 
 		return build_char_class_tokens(allowed);
@@ -351,8 +341,8 @@ vector<Token> Parser::shunting_yard(const vector<Token>& infix) {
  * @return True when a CONCAT token should be inserted.
  */
 bool Parser::should_insert_concat(const Token& left, const Token& right) {
-	return (left.type_ == CHAR || left.type_ == STAR || left.type_ == PLUS || left.type_ == QUESTION || left.type_ == RPAREN)
-		&& (right.type_ == CHAR || right.type_ == LPAREN);
+	return (left.type_ == CHAR || left.type_ == CHARCLASS || left.type_ == STAR || left.type_ == PLUS || left.type_ == QUESTION || left.type_ == RPAREN)
+		&& (right.type_ == CHAR || right.type_ == CHARCLASS || right.type_ == LPAREN);
 }
 
 /**

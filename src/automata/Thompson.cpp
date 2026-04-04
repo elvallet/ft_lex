@@ -26,6 +26,11 @@ NFA Thompson::compile(const vector<Token>& postfix, int index) {
 			worklist.push(make_literal(t.value_));
 			break;
 		}
+		case CHARCLASS:
+		{
+			worklist.push(make_charclass(t.charset_));
+			break;
+		}
 		case CONCAT:
 		{
 			if (worklist.size() < 2) throw runtime_error("Invalid regex");
@@ -139,6 +144,31 @@ Fragment Thompson::make_literal(char c) {
 	v.push_back(second_state);
 	nfa_.transitions_[first_state][c]	= v;
 	nfa_.alphabet_.insert(c);
+
+	Fragment frag;
+	frag.start_	= first_state;
+	frag.out_.push_back({second_state, true, 0});
+
+	return frag;
+}
+
+/**
+ * @brief Build a character class fragment.
+ * All characters in the charset have transitions to the same next state.
+ */
+Fragment Thompson::make_charclass(const std::bitset<128>& charset) {
+	int first_state		= add_state();
+	int second_state	= add_state();
+
+	// Add transitions for each character in the charset
+	for (int c = 0; c < 128; ++c) {
+		if (charset.test(static_cast<size_t>(c))) {
+			vector<int> v;
+			v.push_back(second_state);
+			nfa_.transitions_[first_state][static_cast<char>(c)] = v;
+			nfa_.alphabet_.insert(static_cast<char>(c));
+		}
+	}
 
 	Fragment frag;
 	frag.start_	= first_state;

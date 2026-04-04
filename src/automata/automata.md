@@ -66,11 +66,26 @@ In the DFA, `final_states_[dfa_state]` is the winning rule for this state.
 
 ## 3. Parser (per rule)
 
-`Parser` behavior is unchanged conceptually:
+`Parser` supports explicit character-class constructs as first-class regex atoms.
 
 - tokenize regex
 - insert explicit `CONCAT`
 - convert infix to postfix with shunting-yard
+- parse and normalize character classes (`[...]`, `[^...]`, POSIX classes)
+- parse wildcard `.` as a character class (ASCII except `\n`)
+
+Character classes are no longer desugared into long alternations like `(a|b|c|...)`.
+Instead, parser emits a single `CHARCLASS` token carrying a fixed-size bitset:
+
+```cpp
+struct Token {
+  TokenType type_;           // CHAR, CHARCLASS, UNION, ...
+  char value_;               // used for CHAR
+  std::bitset<128> charset_; // used for CHARCLASS
+};
+```
+
+This keeps the regex representation compact and avoids union-branch explosion.
 
 API:
 
@@ -91,6 +106,15 @@ NFA Thompson::compile(const std::vector<Token>& postfix, int index);
 ```
 
 `index` is the rule index from the input `rules` vector.
+
+In addition to literal `CHAR`, Thompson now handles `CHARCLASS` directly.
+A `CHARCLASS` token builds one fragment with:
+
+- one start state
+- one next state
+- one outgoing symbol transition per enabled bit in `bitset<128>`
+
+This preserves semantics while keeping automata size controlled.
 
 After building the NFA fragment, Thompson creates one final state and tags it with the rule index:
 
@@ -171,6 +195,8 @@ So the first matching rule in the original rule list wins.
 - Accepting DFA states contain the selected rule index directly.
 - Rule order in input is semantic and must be stable.
 - Multi-match conflicts are resolved during DFA construction (min rule index).
+- Character classes are represented atomically from parser to NFA (`CHARCLASS + bitset<128>`).
+- Wildcard `.` shares the same internal representation as other character classes.
 
 ---
 
