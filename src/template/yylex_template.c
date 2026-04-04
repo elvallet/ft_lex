@@ -15,6 +15,7 @@ static size_t	yybuf_pos	= 0;
 char	*yytext	= NULL;
 size_t	yyleng	= 0;
 FILE	*yyin	= NULL;
+FILE	*yyout = NULL;
 
 int yyread(void) {
 	if (yybuf_pos < yybuf_size)
