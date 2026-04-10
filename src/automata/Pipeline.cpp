@@ -4,35 +4,106 @@
  */
 #include "Pipeline.hpp"
 #include <stdexcept>
+#include <algorithm>
 
-using namespace automata;
+using namespace automata; using namespace std;
 
 /**
  * @brief Compile all rules, merge NFAs, build DFA, then complete transitions.
  * @param rules Ordered lexer rules (priority = lowest index).
  * @return Fully constructed DFA for the full rule set.
  */
-DFA ParsingPipeline::execute(const std::vector<lexer_file::Rule>& rules) {
+DFA ParsingPipeline::execute(
+	const vector<lexer_file::Rule>& rules,
+	const map<string, bool>& conditions)
+{
 	thompson_ = Thompson();
 	subset_construction_ = SubsetConstruction();
-	std::vector<NFA>	nfas;
-	int	indice = 0;
 
-	for (auto rule: rules) {
-		std::vector<Token> postfixe = parser_.parse(rule.pattern_);
-		NFA n	= thompson_.compile(postfixe, indice);
-		nfas.push_back(n);
-		indice++;
+	std::vector<NFA>	nfas;
+	for (int i = 0; i < (int)rules.size(); ++i) {
+		vector<Token> postfix	= parser_.parse(rules[i].pattern_);
+		nfas.push_back(thompson_.compile(postfix, i));
 	}
 
-	NFA nfa	= merge(nfas);
-	DFA dfa = subset_construction_.build(nfa);
-	subset_construction_.complete(dfa, nfa);
+	map<string, bool>	all_conditions	= conditions;
+	all_conditions.insert({"INITIAL", false});
+
+	vector<pair<string, vector<NFA>>>	groups;
+
+	for (auto& [cond_name, is_exclusive] : all_conditions) {
+		vector<NFA>	filtered;
+
+		for (int i = 0; i < (int)rules.size(); ++i) {
+			auto&	rule_conds			= rules[i].conditions_;
+			bool	rule_has_cond		= find(rule_conds.begin(), rule_conds.end(), cond_name) != rule_conds.end();
+			bool	rule_is_unqualified	= rule_conds.size() == 1 && rule_conds[0] == "INITIAL";
+
+			if (rule_has_cond)
+				filtered.push_back(nfas[i]);
+			else if (!is_exclusive && rule_is_unqualified && cond_name != "INITIAL")
+				filtered.push_back(nfas[i]);
+		}
+
+		if (!filtered.empty())
+			groups.push_back({cond_name, filtered});
+	}
+
+	auto [global_nfa, nfa_entry_points]	= merge_keyed(groups);
+
+	DFA	dfa	= subset_construction_.build(global_nfa, nfa_entry_points);
+	subset_construction_.complete(dfa, global_nfa);
 
 	return dfa;
 }
 
-NFA ParsingPipeline::merge(const std::vector<NFA>& nfas)
+pair<NFA, map<string, int>> ParsingPipeline::merge_keyed(const vector<pair<string, vector<NFA>>>& groups)
+{
+	NFA	merged;
+	map<string, int>	entry_points;
+	int	offset	= 0;
+
+	for (auto& [cond_name, nfas] : groups) {
+		int	super_initial	= offset;
+		merged.transitions_.push_back({});
+		merged.epsilon_transitions_.push_back({});
+		offset++;
+
+		entry_points[cond_name]	= super_initial;
+
+		for (const NFA& nfa : nfas) {
+			int state_count	= (int)nfa.transitions_.size();
+
+			merged.transitions_.resize(offset + state_count);
+			merged.epsilon_transitions_.resize(offset + state_count);
+
+			for (int state = 0; state < state_count; ++state) {
+				for (auto& [sym, dests] : nfa.transitions_[state]) {
+					for (int dest: dests)
+						merged.transitions_[state + offset][sym].push_back(dest + offset);
+				}
+				for (int eps : nfa.epsilon_transitions_[state])
+					merged.epsilon_transitions_[state + offset].push_back(eps + offset);
+			}
+
+			for (auto& [final_state, rule_idx] : nfa.final_states_)
+				merged.final_states_[final_state + offset] = rule_idx;
+			
+			for (char c : nfa.alphabet_)
+				merged.alphabet_.insert(c);
+
+			merged.epsilon_transitions_[super_initial].push_back(nfa.initial_state_);
+
+			offset += state_count;
+		}
+	}
+
+	merged.initial_state_	= 0;
+
+	return {merged, entry_points};
+}
+
+NFA ParsingPipeline::merge(const vector<NFA>& nfas)
 {
 	if (nfas.empty())
 		throw std::runtime_error("No NFA to merge");

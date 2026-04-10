@@ -26,7 +26,7 @@ public:
 	 * @param rules Ordered lexer rules (priority = lowest index).
 	 * @return Complete DFA generated from all rules.
 	 */
-	DFA execute(const std::vector<lexer_file::Rule>& rules);
+	DFA execute(const std::vector<lexer_file::Rule>& rules, const std::map<std::string, bool>& conditions);
 
 private:
 	/**
@@ -35,6 +35,8 @@ private:
 	 * @return Merged NFA preserving per-rule accepting-state indices.
 	 */
 	NFA merge(const std::vector<NFA>& nfas);
+
+	std::pair<NFA, std::map<std::string, int>>	merge_keyed(const std::vector<std::pair<std::string, std::vector<NFA>>>& groups);
 
 	/** @brief Regex parser instance. */
 	Parser				parser_;

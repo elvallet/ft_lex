@@ -25,7 +25,7 @@ public:
 	 * @param nfa Source NFA.
 	 * @return Equivalent DFA (possibly incomplete).
 	 */
-	DFA		build(const NFA& nfa);
+	DFA		build(const NFA& nfa, const std::map<std::string, int>& entry_points);
 	/**
 	 * @brief Complete missing transitions by adding a sink state when required.
 	 * @param dfa DFA to complete.

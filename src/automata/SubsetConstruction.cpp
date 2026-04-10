@@ -6,6 +6,8 @@
 #include "SubsetConstruction.hpp"
 #include <stack>
 #include <climits>
+#include <map>
+#include <string>
 
 using namespace automata; using namespace std;
 
@@ -14,38 +16,45 @@ using namespace automata; using namespace std;
  * @param nfa Source NFA.
  * @return Equivalent DFA.
  */
-DFA SubsetConstruction::build(const NFA& nfa) {
+DFA SubsetConstruction::build(const NFA& nfa, const map<string, int>& entry_points) {
 	DFA				dfa;
 	stack<uint64_t>	worklist;
 	int				id = 0;
 
-	uint64_t S = epsilon_closure(nfa, (1ULL << nfa.initial_state_));
-	seen_.insert({S, id});
-	dfa.initial_state_ = id++;
-	worklist.push(S);
+	for (auto& [cond_name, nfa_entry] : entry_points) {
+		uint64_t	S	= epsilon_closure(nfa, 1ULL << nfa_entry);
+		if (seen_.find(S) == seen_.end()) {
+			seen_.insert({S, id});
+			worklist.push(S);
+			id++;
+		}
+		dfa.start_states_[cond_name]	= seen_[S];
+	}
+	dfa.initial_state_	= dfa.start_states_.at("INITIAL");
 
 	while (!worklist.empty()) {
-		uint64_t S = worklist.top();
+		uint64_t	S	= worklist.top();
 		worklist.pop();
-		for (char symbol : nfa.alphabet_) {
-			uint64_t T = epsilon_closure(nfa, delta(nfa, S, symbol));
+		for (char sym : nfa.alphabet_) {
+			uint64_t	T	= epsilon_closure(nfa, delta(nfa, S, sym));
 			if (T != 0) {
 				if (seen_.find(T) == seen_.end()) {
 					seen_.insert({T, id++});
 					worklist.push(T);
 				}
-				int S_id = seen_[S];
+				int S_id	= seen_[S];
 				while (dfa.transitions_.size() <= static_cast<size_t>(S_id))
 					dfa.transitions_.push_back({});
-				dfa.transitions_[S_id][symbol] = seen_[T];
+				dfa.transitions_[S_id][sym]	= seen_[T];
 			}
 		}
 	}
-	dfa.final_states_ = final_states(nfa);
+
+	dfa.final_states_	= final_states(nfa);
 
 	while (dfa.transitions_.size() < static_cast<size_t>(id))
 		dfa.transitions_.push_back({});
-		
+
 	return dfa;
 }
 
