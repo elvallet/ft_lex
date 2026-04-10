@@ -6,6 +6,7 @@
 
 #include <string>
 #include <vector>
+#include <optional>
 
 namespace lexer_file {
 
@@ -46,7 +47,8 @@ private:
 	std::string							complete_action(const std::string& partial);
 
 	/** @brief Parse the definitions section (before the first `%%`). */
-	void parse_definitions();
+	void 	parse_definitions();
+	void	parse_conditions(const std::string& line);
 
 	/** @brief Parse `%{ ... %}` block content (without delimiters). */
 	std::string							parse_verbatim_block(const std::string& line);

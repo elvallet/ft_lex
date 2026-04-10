@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <map>
 
 namespace lexer_file {
 
@@ -36,6 +37,7 @@ struct LexFile {
 	std::string											verbatim_bottom_;
 	/** Verbatim/indented lines inside the rules section. */
 	std::vector<std::string>							verbatim_rules_;
+	std::map<std::string, bool>							conditions_;	// true if exclusive (%x) false if inclusive (%s)
 };
 
 } // namespace lexer_file

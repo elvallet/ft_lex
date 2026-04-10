@@ -299,12 +299,39 @@ void LexParser::parse_definitions()
 			auto line = reader_.next();
 			lex_file_.verbatim_top_ += parse_verbatim_block(line->content_);
 		} else if (!peeked->content_.empty() && peeked->content_[0] == '%') {
-			throw ParseError("Unsupported directive", reader_.context(), 0);
+			try {
+				auto line = reader_.next();
+				parse_conditions(line->content_);
+			} catch (exception &e) {
+				throw ParseError(string("Unsupported directive: ") + e.what(), reader_.context(), 0);
+			}
 		} else {
 			auto line = reader_.next();
 			lex_file_.macros_.push_back(parse_macro_line(line->content_));
 		}
 	}
+}
+
+void LexParser::parse_conditions(const string& line)
+{
+	bool	excl;
+	size_t	i		= 1;
+
+	if (i >= line.size()) throw runtime_error("missing directive after '%'");
+	if (line[i] == 'p' || line[i] == 'n' || line[i] == 'a' || line[i] == 'e' || line[i] == 'o')
+		return;
+	if (line[i] != 's' && line[i] != 'x') throw runtime_error(string("unknown directive %") + line[i]);
+
+	excl = line[i++] == 'x';
+	while (i < line.size() && is_whitespace(line[i])) i++;
+
+	size_t pos = line.find_first_of(" \t", i);
+	while (pos != string::npos) {
+		lex_file_.conditions_.insert({line.substr(i, pos - i), excl});
+		i = pos + 1;
+		pos = line.find_first_of(" \t", i);
+	}
+	lex_file_.conditions_.insert({line.substr(i, pos - i), excl});
 }
 
 /**
