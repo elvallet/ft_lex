@@ -23,6 +23,8 @@ Codegen codegen;
 codegen.generate(dfa, lexfile, "lex.yy.c");
 ```
 
+The generated scanner now supports start conditions (`%s`, `%x`) through a condition-to-DFA-entry indirection used by `BEGIN(NAME)`.
+
 ---
 
 ## 2. Structure of the generated file
@@ -40,9 +42,28 @@ The generated `lex.yy.c` is composed of four sections, written in order:
 
 ## 3. Static tables
 
-The DFA is serialized as two static C arrays.
+The DFA is serialized as start-condition metadata plus two static C arrays.
 
-### 3.1 Transition table — `yy_table`
+### 3.1 Start conditions metadata
+
+Codegen emits:
+
+- one macro per start condition (`#define INITIAL 0`, `#define COMMENT 1`, ...)
+- one lookup table mapping macro index to DFA entry state:
+
+```c
+static int yystart_states[] = { dfa_state_for_INITIAL, dfa_state_for_COMMENT, ... };
+```
+
+`BEGIN(X)` in the runtime template does:
+
+```c
+#define BEGIN(x) (yycurrent_state = yystart_states[(x)])
+```
+
+So user code switches condition by selecting the corresponding DFA start state.
+
+### 3.2 Transition table — `yy_table`
 
 A 2D array of dimensions `NB_STATES × 256`. Each cell contains the destination state when consuming a given character, or `-1` when no transition exists.
 
@@ -58,7 +79,7 @@ static int yy_table[NB_STATES][256] = {
 
 **Important:** always cast `c` to `unsigned char` before using it as a map key. On platforms where `char` is signed, values above 127 produce negative indices.
 
-### 3.2 Accepting states table — `yy_accept`
+### 3.3 Accepting states table — `yy_accept`
 
 A 1D array of size `NB_STATES`. Each cell contains the rule index if the state is accepting, or `-1` otherwise.
 
@@ -70,7 +91,7 @@ static int yy_accept[NB_STATES] = { -1, -1, 2, -1, 0 };
 
 **Why rule index and not a boolean:** `yylex()` needs to know not just that a match occurred, but which action to dispatch. Multiple accepting states correspond to different rules — the index is the direct key into the switch dispatch.
 
-### 3.3 Prerequisite: contiguous state numbering
+### 3.4 Prerequisite: contiguous state numbering
 
 Both tables require that DFA state IDs are contiguous integers from `0` to `N-1`. This is guaranteed by the subset construction algorithm, which assigns IDs sequentially as new states are discovered. No remapping is needed.
 
@@ -80,18 +101,17 @@ Both tables require that DFA state IDs are contiguous integers from `0` to `N-1`
 
 ### 4.1 Template approach
 
-Rather than generating `yylex()` character by character via `out_ <<`, the body of `yylex()` is stored in a static template file `yylex.template.c`. This template contains the fixed DFA simulation logic with three substitution markers:
+Rather than generating `yylex()` character by character via `out_ <<`, the body of `yylex()` is stored in a static template file `yylex_template.c`. This template contains the fixed DFA simulation logic with two substitution markers:
 
 | Marker | Replaced with |
 | - | - |
-| `@@INITIAL_STATE@@` | `dfa.initial_state_` |
 | `@@VERBATIM_RULES@@` | Contents of `LexFile::verbatim_rules_` |
 | `@@RULES@@` | Generated `case N: { action } break;` blocks |
 
 The template is embedded in the binary at compile time via `xxd -i`:
 
 ```makefile
-yylex_template.h: yylex.template.c
+yylex_template.h: yylex_template.c
     xxd -i $< > $@
 ```
 
@@ -119,7 +139,7 @@ Two cursors are maintained separately:
 
 ```txt
 loop:
-    state         = initial_state
+    state         = yycurrent_state
     last_match    = -1
     last_match_pos = match_start
     yybuf_pos     = match_start
@@ -163,9 +183,15 @@ loop:
 int yylex(void) {
     free(yytext);
     yytext = NULL;
+    if (!yyinitialized) {
+        BEGIN(INITIAL);
+        yyinitialized = 1;
+    }
     /* ... */
 }
 ```
+
+This bootstrap is required because DFA state `0` is not guaranteed to be the `INITIAL` entry state when multiple start conditions are compiled.
 
 This matches the POSIX specification: callers that need to retain the value across calls must `strdup` it themselves.
 
@@ -180,6 +206,7 @@ This matches the POSIX specification: callers that need to retain the value acro
 | `yytext` | `char*` | Pointer to the last matched token |
 | `yyleng` | `size_t` | Length of the last matched token |
 | `yybuffer` | `char*` | Internal input buffer |
+| `yycurrent_state` | `int` | Current DFA entry state selected by `BEGIN()` |
 
 `yyin` and `yyout` are initialized by the `libl` runtime, not in `lex.yy.c` itself.
 
@@ -196,7 +223,7 @@ private:
     std::ofstream out_;
 
     void write_prologue(const LexFile& lexfile);   // verbatim_top_
-    void write_tables(const DFA& dfa);             // yy_table + yy_accept
+    void write_tables(const DFA& dfa);             // start metadata + yy_table + yy_accept
     void write_yylex(const DFA& dfa, const LexFile& lexfile); // template substitution
     void write_epilogue(const LexFile& lexfile);   // verbatim_bottom_
 };

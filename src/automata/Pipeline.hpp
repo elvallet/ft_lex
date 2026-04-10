@@ -5,6 +5,7 @@
 #pragma once
 
 #include <string>
+#include <map>
 
 #include "Parser.hpp"
 #include "Thompson.hpp"
@@ -24,9 +25,10 @@ public:
 	/**
 	 * @brief Execute the full pipeline from rules to complete DFA.
 	 * @param rules Ordered lexer rules (priority = lowest index).
+	 * @param conditions Declared start conditions (`%s` and `%x`) from lexer file.
 	 * @return Complete DFA generated from all rules.
 	 */
-	DFA execute(const std::vector<lexer_file::Rule>& rules);
+	DFA execute(const std::vector<lexer_file::Rule>& rules, const std::map<std::string, bool>& conditions);
 
 private:
 	/**
@@ -35,6 +37,13 @@ private:
 	 * @return Merged NFA preserving per-rule accepting-state indices.
 	 */
 	NFA merge(const std::vector<NFA>& nfas);
+
+	/**
+	 * @brief Merge NFA groups by start condition and expose each condition entry point.
+	 * @param groups Pairs of `<condition_name, list of NFAs active in that condition>`.
+	 * @return Merged NFA and per-condition NFA entry-state ids.
+	 */
+	std::pair<NFA, std::map<std::string, int>>	merge_keyed(const std::vector<std::pair<std::string, std::vector<NFA>>>& groups);
 
 	/** @brief Regex parser instance. */
 	Parser				parser_;

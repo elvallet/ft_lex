@@ -69,6 +69,52 @@ string& trim(string& s, const char* t)
 
 } // namespace
 
+vector<string> LexParser::extract_conditions(const std::string& line, size_t* i)
+{
+	string			conditions;
+	vector<string>	split_conditions;
+	bool found = false;
+
+	(*i)++;
+	while (*i < line.size()) {
+		if (line[*i] == '>')
+		{
+			(*i)++;
+			found = true;
+			break;
+		}
+		conditions.push_back(line[*i]);
+		(*i)++;
+	}
+
+	if (!found)
+		throw runtime_error("'<' not closed");
+
+	size_t oldpos = 0;
+	size_t pos = conditions.find(',');
+	while (pos != string::npos) {
+		split_conditions.push_back(conditions.substr(oldpos, pos - oldpos));
+		oldpos = pos + 1;
+		pos = conditions.find(',', oldpos);
+	}
+	split_conditions.push_back(conditions.substr(oldpos));
+
+	for (auto& condition : split_conditions) {
+		trim(condition, " \t\n\r\f\v");
+		if (condition == "*") {
+			// `<*>` means: activate this rule in every declared start condition.
+			vector<string> all;
+			for (auto& [name, _] : lex_file_.conditions_) all.push_back(name);
+			return all;
+		}
+		if (condition != "INITIAL" && lex_file_.conditions_.find(condition) == lex_file_.conditions_.end()) {
+			throw ParseError("Undefined condition: " + condition, reader_.context(), 0);
+		}
+	}
+
+	return split_conditions;
+}
+
 pair<string, string> LexParser::split_pattern_action(const std::string& raw)
 {
 	if (raw.empty())
@@ -183,10 +229,18 @@ string LexParser::complete_action(const string& partial)
  */
 Rule LexParser::parse_single_rule(const string& line)
 {
-	auto split = split_pattern_action(line);
+	vector<string>	conditions;
+	size_t	index = 0;
+
+	if (!line.empty() && line[0] == '<') 
+		conditions	= extract_conditions(line, &index);
+	else
+		conditions.push_back("INITIAL");
+	
+	auto split = split_pattern_action(line.substr(index));
 
 	if (split.second == "|") {
-		return Rule{split.first, split.second, true};
+		return Rule{conditions, split.first, split.second, true};
 	}
 
 	string completed_action;
@@ -199,7 +253,7 @@ Rule LexParser::parse_single_rule(const string& line)
 		completed_action = complete_action(split.second);
 	}
 
-	return Rule{split.first, completed_action, false};
+	return Rule{conditions, split.first, completed_action, false};
 }
 
 /**
@@ -258,12 +312,40 @@ void LexParser::parse_definitions()
 			auto line = reader_.next();
 			lex_file_.verbatim_top_ += parse_verbatim_block(line->content_);
 		} else if (!peeked->content_.empty() && peeked->content_[0] == '%') {
-			throw ParseError("Unsupported directive", reader_.context(), 0);
+			try {
+				auto line = reader_.next();
+				parse_conditions(line->content_);
+			} catch (exception &e) {
+				throw ParseError(string("Unsupported directive: ") + e.what(), reader_.context(), 0);
+			}
 		} else {
 			auto line = reader_.next();
 			lex_file_.macros_.push_back(parse_macro_line(line->content_));
 		}
 	}
+}
+
+void LexParser::parse_conditions(const string& line)
+{
+	bool	excl;
+	size_t	i		= 1;
+
+	if (i >= line.size()) throw runtime_error("missing directive after '%'");
+	if (line[i] == 'p' || line[i] == 'n' || line[i] == 'a' || line[i] == 'e' || line[i] == 'o')
+		return;
+	if (line[i] != 's' && line[i] != 'x') throw runtime_error(string("unknown directive %") + line[i]);
+
+	// `%x` declares exclusive states, `%s` declares inclusive ones.
+	excl = line[i++] == 'x';
+	while (i < line.size() && is_whitespace(line[i])) i++;
+
+	size_t pos = line.find_first_of(" \t", i);
+	while (pos != string::npos) {
+		lex_file_.conditions_.insert({line.substr(i, pos - i), excl});
+		i = pos + 1;
+		pos = line.find_first_of(" \t", i);
+	}
+	lex_file_.conditions_.insert({line.substr(i, pos - i), excl});
 }
 
 /**

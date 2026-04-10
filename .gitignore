@@ -9,7 +9,7 @@ ft_lex
 scanner
 stub.c
 lex.yy.c
-
+.tmp*
 # Compiled Object files
 *.slo
 *.lo

@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <unordered_map>
+#include <map>
 
 namespace automata {
 
@@ -20,6 +21,8 @@ struct DFA {
 	std::unordered_map<int, int>				final_states_;
 	/** @brief Transition table: state -> (symbol -> next state). */
 	std::vector<std::unordered_map<char, int>>	transitions_;
+	/** @brief Start condition entry states: condition name -> DFA state id. */
+	std::map<std::string, int>					start_states_;
 };
 
 } // namespace automata

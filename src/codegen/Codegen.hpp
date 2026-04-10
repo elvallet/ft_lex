@@ -37,10 +37,9 @@ private:
 	void	write_tables(const automata::DFA& dfa);
 	/**
 	 * @brief Materialize yylex() from the embedded template and substitutions.
-	 * @param dfa Deterministic automaton.
 	 * @param lexfile Parsed lexer file.
 	 */
-	void	write_yylex(const automata::DFA& dfa, const lexer_file::LexFile& lexfile);
+	void	write_yylex(const lexer_file::LexFile& lexfile);
 	/**
 	 * @brief Write the epilogue section.
 	 * @param lexfile Parsed lexer file.

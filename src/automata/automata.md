@@ -1,6 +1,6 @@
 # ft_lex - Automata Pipeline
 
-## Multi-rule Regex -> NFA -> DFA
+## Multi-rule and Start-Condition Aware Regex -> NFA -> DFA
 
 > Technical reference for the `src/automata` module.
 
@@ -8,16 +8,17 @@
 
 ## 1. Overview
 
-The automata module now compiles a full lexer rule set (not a single regex) into one deterministic automaton.
+The automata module compiles a full lexer specification into one deterministic automaton while preserving lex rule priority and start-condition semantics.
 
 Global flow:
 
 ```txt
-rules[]
+rules[] + declared conditions
   -> Parser (per rule)
   -> Thompson (per rule NFA, tagged with rule index)
-  -> ParsingPipeline::merge (single merged NFA)
-  -> SubsetConstruction::build (DFA)
+  -> ParsingPipeline::group by condition
+  -> ParsingPipeline::merge_keyed (single merged NFA + per-condition entries)
+  -> SubsetConstruction::build (DFA + per-condition DFA start states)
   -> SubsetConstruction::complete (total DFA with sink)
 ```
 
@@ -25,7 +26,7 @@ Main entry point:
 
 ```cpp
 automata::ParsingPipeline pipeline;
-automata::DFA dfa = pipeline.execute(rules);
+automata::DFA dfa = pipeline.execute(rules, conditions);
 ```
 
 `rules` is `std::vector<lexer_file::Rule>`, and order matters: lower index means higher priority.
@@ -48,159 +49,94 @@ struct NFA {
 };
 ```
 
-Important detail: `final_states_` is no longer a plain list. It stores which rule each accepting state belongs to.
+`final_states_` stores the rule index attached to each accepting NFA state.
 
 ### 2.2 DFA
 
 ```cpp
 struct DFA {
     int initial_state_;
-    std::unordered_map<int, int> final_states_; // state id -> selected rule index
+    std::unordered_map<int, int> final_states_; // dfa state -> selected rule index
     std::vector<std::unordered_map<char, int>> transitions_;
+    std::map<std::string, int> start_states_;   // condition name -> dfa entry state
 };
 ```
 
-In the DFA, `final_states_[dfa_state]` is the winning rule for this state.
+- `initial_state_` is the DFA state used by `INITIAL`.
+- `start_states_` is used by generated `BEGIN(X)` support.
 
 ---
 
-## 3. Parser (per rule)
+## 3. Condition-Aware Grouping
 
-`Parser` supports explicit character-class constructs as first-class regex atoms.
+Before merging NFAs, rules are grouped per start condition.
 
-- tokenize regex
-- insert explicit `CONCAT`
-- convert infix to postfix with shunting-yard
-- parse and normalize character classes (`[...]`, `[^...]`, POSIX classes)
-- parse wildcard `.` as a character class (ASCII except `\n`)
+Selection rules:
 
-Character classes are no longer desugared into long alternations like `(a|b|c|...)`.
-Instead, parser emits a single `CHARCLASS` token carrying a fixed-size bitset:
+- A rule tagged with `<COND>` is included in `COND` only.
+- A rule without explicit condition (`INITIAL` only) is also included in each inclusive `%s` condition.
+- A rule without explicit condition is not injected into exclusive `%x` conditions.
+
+This matches expected lex behavior for inclusive/exclusive states.
+
+---
+
+## 4. Keyed Merge Strategy
+
+`ParsingPipeline::merge_keyed` merges all groups into one NFA and returns per-condition NFA entry points.
+
+For each condition:
+
+- create one synthetic condition entry state
+- copy each included NFA with offset remapping
+- preserve `final_state -> rule_index`
+- add epsilon from condition entry to each shifted rule NFA start
+
+Output:
 
 ```cpp
-struct Token {
-  TokenType type_;           // CHAR, CHARCLASS, UNION, ...
-  char value_;               // used for CHAR
-  std::bitset<128> charset_; // used for CHARCLASS
-};
+std::pair<NFA, std::map<std::string, int>>
 ```
 
-This keeps the regex representation compact and avoids union-branch explosion.
-
-API:
-
-```cpp
-std::vector<Token> Parser::parse(const std::string& regex);
-```
-
-This stage is executed once per rule pattern.
+The map is `condition -> entry_state_in_merged_nfa`.
 
 ---
 
-## 4. Thompson Construction (per rule)
+## 5. Subset Construction with Multiple Entries
 
-API:
+`SubsetConstruction::build(const NFA&, const std::map<std::string, int>& entry_points)` seeds one epsilon-closure subset per condition entry point.
 
-```cpp
-NFA Thompson::compile(const std::vector<Token>& postfix, int index);
-```
+- each distinct subset gets one DFA id
+- if two conditions map to the same closure, they reuse the same DFA id
+- `dfa.start_states_[name]` records the DFA id for each condition
+- `dfa.initial_state_ = dfa.start_states_["INITIAL"]`
 
-`index` is the rule index from the input `rules` vector.
-
-In addition to literal `CHAR`, Thompson now handles `CHARCLASS` directly.
-A `CHARCLASS` token builds one fragment with:
-
-- one start state
-- one next state
-- one outgoing symbol transition per enabled bit in `bitset<128>`
-
-This preserves semantics while keeping automata size controlled.
-
-After building the NFA fragment, Thompson creates one final state and tags it with the rule index:
-
-```cpp
-nfa_.final_states_ = {{final, index}};
-```
-
-So each per-rule NFA carries rule identity at acceptance.
+`final_states` selection is unchanged: minimum rule index wins when a subset contains multiple accepting NFA states.
 
 ---
 
-## 5. ParsingPipeline::execute (multi-rule)
+## 6. Completion and Determinism
 
-`ParsingPipeline::execute(const std::vector<lexer_file::Rule>& rules)` does:
+`SubsetConstruction::complete` ensures total transitions over the discovered alphabet:
 
-1. Reinitialize builders (`Thompson`, `SubsetConstruction`).
-1. For each rule, parse `rule.pattern_` then compile an NFA with its rule index.
-1. Merge all NFAs into one NFA (`merge`).
-1. Build DFA from merged NFA.
-1. Complete DFA (add sink transitions when missing).
+- missing edges go to one sink state
+- sink loops to itself for all alphabet symbols
 
-Returns one DFA able to recognize every rule.
+This keeps scanner runtime logic simple (single table lookup path).
 
 ---
 
-## 6. NFA Merge Strategy
+## 7. Practical Consequences
 
-`ParsingPipeline::merge` combines all per-rule NFAs with a fresh shared initial state:
-
-- create merged state `0` as global start
-- copy each NFA with an offset in state ids
-- copy all symbol and epsilon transitions with offset
-- copy each `final_state -> rule_index` into merged map with offset
-- union all alphabets
-- add epsilon from merged start to each shifted rule start
-
-This preserves rule identity while creating a single connected NFA.
-
-If no NFA is provided, merge throws:
-
-```txt
-No NFA to merge
-```
+- One DFA now supports normal scanning and start-condition mode switching.
+- Rule order remains semantic; the first rule wins on conflicts.
+- Inclusive `%s` conditions inherit unqualified rules.
+- Exclusive `%x` conditions only activate explicitly qualified rules.
+- Generated code can switch condition with `BEGIN(NAME)` and continue from the right DFA entry.
 
 ---
 
-## 7. Subset Construction and Rule Priority
+## 8. Notes and Limits
 
-### 7.1 build
-
-`SubsetConstruction::build` performs standard powerset construction with bitmask states.
-
-For each discovered subset mask, transitions are computed for each symbol in `nfa.alphabet_`.
-
-### 7.2 final state selection
-
-`SubsetConstruction::final_states` computes DFA accepting states from discovered masks.
-
-If a DFA subset contains multiple NFA finals from different rules, it picks the minimum rule index:
-
-- rule priority = smallest index
-- deterministic tie-break compatible with rule ordering
-
-So the first matching rule in the original rule list wins.
-
-### 7.3 complete
-
-`SubsetConstruction::complete` ensures DFA totality:
-
-- any missing transition goes to one sink state
-- sink loops to itself on all alphabet symbols
-
----
-
-## 8. Practical Consequences
-
-- One automaton now handles all lexer rules.
-- Accepting DFA states contain the selected rule index directly.
-- Rule order in input is semantic and must be stable.
-- Multi-match conflicts are resolved during DFA construction (min rule index).
-- Character classes are represented atomically from parser to NFA (`CHARCLASS + bitset<128>`).
-- Wildcard `.` shares the same internal representation as other character classes.
-
----
-
-## 9. Notes and Limits
-
-- Subset bitmasks use `uint64_t`, so the current implementation assumes at most 64 NFA states in one merged construction path.
-- `ParsingPipeline::execute` expects at least one rule.
+- Subset bitmasks use `uint64_t`, so the implementation assumes up to 64 NFA states in one merged construction.
+- `INITIAL` is always injected in condition handling, even if not explicitly declared.

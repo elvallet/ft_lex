@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <cstdint>
+#include <map>
+#include <string>
 
 #include "NFA.hpp"
 #include "DFA.hpp"
@@ -23,9 +25,10 @@ public:
 	/**
 	 * @brief Build a DFA from an NFA using subset construction.
 	 * @param nfa Source NFA.
+	 * @param entry_points Condition name -> NFA entry state used to seed subsets.
 	 * @return Equivalent DFA (possibly incomplete).
 	 */
-	DFA		build(const NFA& nfa);
+	DFA		build(const NFA& nfa, const std::map<std::string, int>& entry_points);
 	/**
 	 * @brief Complete missing transitions by adding a sink state when required.
 	 * @param dfa DFA to complete.

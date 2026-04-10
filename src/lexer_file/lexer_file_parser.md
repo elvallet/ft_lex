@@ -22,13 +22,20 @@ A `.l` file is divided into three sections separated by `%%` markers:
 
 - Verbatim C code blocks enclosed in `%{ ... %}` - copied directly into the generated file
 - Macro definitions of the form `NAME regex`
+- Start-condition declarations: `%s STATE...` (inclusive) and `%x STATE...` (exclusive)
 
-**Section 2** contains lexer rules of the form `pattern action`, where:
+**Section 2** contains lexer rules of the form `[<conditions>] pattern action`, where:
 
 - `pattern` is a POSIX ERE regex
 - `action` is a block of C code enclosed in `{ ... }`
 - `action` can be `|` (pipe), meaning "same action as the next rule"
 - Lines beginning with whitespace are verbatim C code injected into `yylex()`
+
+Condition qualifier examples:
+
+- `<COMMENT>"*/"   { BEGIN(INITIAL); }`
+- `<STRING,COMMENT>.  /* ... */`
+- `<*>.               /* active in all declared conditions */`
 
 **Section 3** is optional and contains raw C code copied verbatim at the end of the generated file (typically a `main()`).
 
@@ -53,9 +60,16 @@ Macros are stored as `vector` to preserve declaration order, which is semantical
 
 | Field | Type | Description |
 | - | - | - |
+| `conditions_` | `vector<string>` | Start conditions attached to the rule (`INITIAL` when unqualified) |
 | `pattern_` | `string` | The regex pattern, fully macro-expanded |
 | `action_` | `string` | The C action block, including surrounding braces |
 | `is_pipe_` | `bool` | True is the original action was a pipe |
+
+`LexFile` also stores declared start conditions:
+
+| Field | Type | Description |
+| - | - | - |
+| `conditions_` | `map<string, bool>` | Condition name -> `true` for `%x` (exclusive), `false` for `%s` (inclusive) |
 
 ## Architecture
 
@@ -87,8 +101,10 @@ parse()
 ├── parse_definitions()       — section 1
 │   ├── parse_verbatim_block()
 │   └── parse_macro_line()
+│   └── parse_conditions()     — `%s` / `%x`
 ├── parse_rules()             — section 2
 │   ├── parse_single_rule()
+│   │   ├── extract_conditions()
 │   │   ├── split_pattern_action()
 │   │   └── complete_action()
 ├── parse_user_code()         — section 3
@@ -124,6 +140,30 @@ It reads additional lines from the `LineReader` until depth reaches zero, or thr
 
 ---
 
+## Start Conditions
+
+### Definition parsing (`%s` / `%x`)
+
+In section 1, `%s` and `%x` directives populate `LexFile::conditions_`.
+
+- `%s NAME ...` => inclusive state (`false` in map)
+- `%x NAME ...` => exclusive state (`true` in map)
+
+Other common lex directives (`%option`, `%pointer`, etc.) are currently ignored by this parser.
+
+### Rule qualifier parsing (`<...>`)
+
+At rule parse time, `extract_conditions()` handles the optional `<...>` prefix:
+
+- comma-separated condition names are trimmed and validated
+- unknown names raise `ParseError("Undefined condition: ...")`
+- `<*>` expands to all declared conditions
+- unqualified rules get implicit `INITIAL`
+
+This data is later consumed by the automata pipeline to build condition-specific DFA entry states.
+
+---
+
 ## Macro Expansion
 
 Macro expansion is a two-pass post-processing step that runs after all parsing is complete.
@@ -155,6 +195,7 @@ Detected errors include:
 | Unsupported directive | `Unsupported directive` |
 | Invalid macro name | `Invalid character in macro` |
 | Empty macro regex | `Invalid macro: regex cannot be empty` |
+| Unknown start condition in rule | `Undefined condition: ...` |
 | Unclosed action `{` | `Unclosed action block` |
 | Pipe as last rule | `Last rule cannot be pipe` |
 | Undefined macro | `Undefined macro in pattern` |

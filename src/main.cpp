@@ -20,7 +20,7 @@ int main(int argc, char **argv)
 		lexer_file::LexParser		parser(input_file);
 		lexer_file::LexFile			lex_file = parser.parse();
 		automata::ParsingPipeline	pipeline;
-		automata::DFA				dfa = pipeline.execute(lex_file.rules_);
+		automata::DFA				dfa = pipeline.execute(lex_file.rules_, lex_file.conditions_);
 		codegen::Codegen			generator;
 
 		generator.generate(dfa, lex_file, output_file);

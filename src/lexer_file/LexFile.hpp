@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <map>
 
 namespace lexer_file {
 
@@ -9,10 +10,12 @@ namespace lexer_file {
  * @brief A lexer rule made of a regular-expression pattern and an action.
  */
 struct Rule {
+	/** Optional start conditions attached to the rule (`<STATE1,STATE2>`). */
+	std::vector<std::string>	conditions_;
 	/** Raw or macro-expanded pattern matched by the lexer. */
-	std::string	pattern_;
+	std::string					pattern_;
 	/** User C/C++ action associated with the pattern. */
-	std::string	action_;
+	std::string					action_;
 	/**
 	 * @brief True when the rule action is the pipe operator (`|`).
 	 *
@@ -35,6 +38,8 @@ struct LexFile {
 	std::string											verbatim_bottom_;
 	/** Verbatim/indented lines inside the rules section. */
 	std::vector<std::string>							verbatim_rules_;
+	/** Declared start conditions: key=name, value=true for `%x`, false for `%s`. */
+	std::map<std::string, bool>							conditions_;	// true if exclusive (%x) false if inclusive (%s)
 };
 
 } // namespace lexer_file

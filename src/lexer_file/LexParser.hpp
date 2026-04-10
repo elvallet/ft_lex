@@ -6,6 +6,7 @@
 
 #include <string>
 #include <vector>
+#include <optional>
 
 namespace lexer_file {
 
@@ -39,13 +40,17 @@ private:
 
 	/** @brief Parse one rule line and complete its action if needed. */
 	Rule								parse_single_rule(const std::string& line);
+	/** @brief Parse `<COND1,COND2>` prefix and return normalized condition names. */
+	std::vector<std::string>			extract_conditions(const std::string& line, size_t* i);
 	/** @brief Split a raw rule into `<pattern, action>`. */
 	std::pair<std::string, std::string>	split_pattern_action(const std::string& raw);
 	/** @brief Continue reading lines until an action block is syntactically closed. */
 	std::string							complete_action(const std::string& partial);
 
 	/** @brief Parse the definitions section (before the first `%%`). */
-	void parse_definitions();
+	void 	parse_definitions();
+	/** @brief Parse `%s/%x` start-condition directives declared in section 1. */
+	void	parse_conditions(const std::string& line);
 
 	/** @brief Parse `%{ ... %}` block content (without delimiters). */
 	std::string							parse_verbatim_block(const std::string& line);

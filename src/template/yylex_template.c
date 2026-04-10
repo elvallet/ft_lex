@@ -2,15 +2,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ECHO do { fwrite(yybuffer + match_start, 1, 1, stdout); } while(0)
+#define ECHO fwrite(yytext, yyleng, 1, yyout)
 #define YYBUF_INIT_SIZE 256
+#define BEGIN(x) (yycurrent_state = yystart_states[(x)])
 
 int yywrap(void);
 
-static char		*yybuffer	= NULL;
-static size_t	yybuf_size	= 0;
-static size_t	yybuf_capa	= 0;
-static size_t	yybuf_pos	= 0;
+static char		*yybuffer		= NULL;
+static size_t	yybuf_size		= 0;
+static size_t	yybuf_capa		= 0;
+static size_t	yybuf_pos		= 0;
+static int		yycurrent_state	= 0;
 
 char	*yytext	= NULL;
 size_t	yyleng	= 0;
@@ -43,13 +45,18 @@ int yyread(void) {
 int yylex(void) {
 	free(yytext);
 	yytext = NULL;
+	static int yyinitialized = 0;
+	if (!yyinitialized) {
+		BEGIN(INITIAL);
+		yyinitialized = 1;
+	}
 
 	@@VERBATIM_RULES@@
 
 	static size_t match_start = 0;
 
 	while (1) {
-		int		state			= @@INITIAL_STATE@@;
+		int		state			= yycurrent_state;
 		int 	last_match		= -1;
 		size_t	last_match_pos	= match_start;
 	
