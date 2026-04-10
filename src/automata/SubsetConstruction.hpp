@@ -25,6 +25,7 @@ public:
 	/**
 	 * @brief Build a DFA from an NFA using subset construction.
 	 * @param nfa Source NFA.
+	 * @param entry_points Condition name -> NFA entry state used to seed subsets.
 	 * @return Equivalent DFA (possibly incomplete).
 	 */
 	DFA		build(const NFA& nfa, const std::map<std::string, int>& entry_points);

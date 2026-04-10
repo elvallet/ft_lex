@@ -41,6 +41,7 @@ DFA ParsingPipeline::execute(
 
 			if (rule_has_cond)
 				filtered.push_back(nfas[i]);
+			// Inclusive conditions inherit rules without explicit condition qualifiers.
 			else if (!is_exclusive && rule_is_unqualified && cond_name != "INITIAL")
 				filtered.push_back(nfas[i]);
 		}
@@ -64,6 +65,7 @@ pair<NFA, map<string, int>> ParsingPipeline::merge_keyed(const vector<pair<strin
 	int	offset	= 0;
 
 	for (auto& [cond_name, nfas] : groups) {
+		// One synthetic epsilon-only entry state is created per start condition.
 		int	super_initial	= offset;
 		merged.transitions_.push_back({});
 		merged.epsilon_transitions_.push_back({});
@@ -92,6 +94,7 @@ pair<NFA, map<string, int>> ParsingPipeline::merge_keyed(const vector<pair<strin
 			for (char c : nfa.alphabet_)
 				merged.alphabet_.insert(c);
 
+			// Wire condition entry to the shifted NFA initial state.
 			merged.epsilon_transitions_[super_initial].push_back(nfa.initial_state_ + offset);
 
 			offset += state_count;

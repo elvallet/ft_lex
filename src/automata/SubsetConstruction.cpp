@@ -21,6 +21,7 @@ DFA SubsetConstruction::build(const NFA& nfa, const map<string, int>& entry_poin
 	int				id = 0;
 
 	for (auto& [cond_name, nfa_entry] : entry_points) {
+		// Seed one DFA subset per condition entry and reuse ids when closures are identical.
 		uint64_t	S	= epsilon_closure(nfa, 1ULL << nfa_entry);
 		if (seen_.find(S) == seen_.end()) {
 			seen_.insert({S, id});
@@ -29,6 +30,7 @@ DFA SubsetConstruction::build(const NFA& nfa, const map<string, int>& entry_poin
 		}
 		dfa.start_states_[cond_name]	= seen_[S];
 	}
+	// The canonical DFA initial state is the one attached to INITIAL condition.
 	dfa.initial_state_	= dfa.start_states_.at("INITIAL");
 
 	while (!worklist.empty()) {

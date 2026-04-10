@@ -102,6 +102,7 @@ vector<string> LexParser::extract_conditions(const std::string& line, size_t* i)
 	for (auto& condition : split_conditions) {
 		trim(condition, " \t\n\r\f\v");
 		if (condition == "*") {
+			// `<*>` means: activate this rule in every declared start condition.
 			vector<string> all;
 			for (auto& [name, _] : lex_file_.conditions_) all.push_back(name);
 			return all;
@@ -334,6 +335,7 @@ void LexParser::parse_conditions(const string& line)
 		return;
 	if (line[i] != 's' && line[i] != 'x') throw runtime_error(string("unknown directive %") + line[i]);
 
+	// `%x` declares exclusive states, `%s` declares inclusive ones.
 	excl = line[i++] == 'x';
 	while (i < line.size() && is_whitespace(line[i])) i++;
 

@@ -105,6 +105,7 @@ void Codegen::write_tables(const automata::DFA& dfa)
 	ids.push_back(dfa.initial_state_);
 	int count = 1;
 
+	// Export condition names as BEGIN() indices used by generated scanner code.
 	for (auto& [name, id] : dfa.start_states_) {
 		if (name == "INITIAL") continue;
 		out_ << "#define " << name << " " << count << "\n";
@@ -112,6 +113,7 @@ void Codegen::write_tables(const automata::DFA& dfa)
 		count++;
 	}
 
+	// BEGIN(x) selects a DFA entry state through this indirection table.
 	out_ << "static int yystart_states[] = {";
 	bool first = true;
 	for (int i : ids) {
