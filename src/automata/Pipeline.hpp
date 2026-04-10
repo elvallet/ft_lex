@@ -5,6 +5,7 @@
 #pragma once
 
 #include <string>
+#include <map>
 
 #include "Parser.hpp"
 #include "Thompson.hpp"

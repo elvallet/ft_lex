@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <cstdint>
+#include <map>
+#include <string>
 
 #include "NFA.hpp"
 #include "DFA.hpp"

@@ -79,7 +79,7 @@ void Codegen::generate(const automata::DFA& dfa, const lexer_file::LexFile& lexf
 	// Generated file layout: prologue + tables + yylex + epilogue.
 	write_prologue(lexfile);
 	write_tables(dfa);
-	write_yylex(dfa, lexfile);
+	write_yylex(lexfile);
 	write_epilogue(lexfile);
 }
 
@@ -128,12 +128,12 @@ void Codegen::write_tables(const automata::DFA& dfa)
 	out_ << "static int yy_table[" << nb_states << "][256] = {" << std::endl;
 	for (size_t i = 0; i < nb_states; i++) {
 		out_ << "\t{ ";
-		bool first = true;
+		bool first2 = true;
 		for (int c = 0; c < 256; c++) {
-			if (!first) {
+			if (!first2) {
 				out_ << ", ";
 			} else {
-				first = false;
+				first2 = false;
 			}
 			auto found	= dfa.transitions_[i].find(static_cast<char>(c));
 			if (found != dfa.transitions_[i].end()) {
@@ -148,12 +148,12 @@ void Codegen::write_tables(const automata::DFA& dfa)
 
 	// yy_accept[state] stores winning rule index, or -1 if non-accepting.
 	out_ << "static int yy_accept[" << nb_states << "] = { ";
-	bool first = true;
+	bool first3 = true;
 	for (size_t i = 0; i < nb_states; i++) {
-		if (!first) {
+		if (!first3) {
 			out_ << ", ";
 		} else {
-			first = false;
+			first3 = false;
 		}
 		auto found = dfa.final_states_.find(static_cast<int>(i));
 		if (found != dfa.final_states_.end()) {
@@ -170,7 +170,7 @@ void Codegen::write_tables(const automata::DFA& dfa)
  * @param dfa Deterministic automaton.
  * @param lexfile Parsed lexer file.
  */
-void Codegen::write_yylex(const automata::DFA& dfa, const lexer_file::LexFile& lexfile)
+void Codegen::write_yylex(const lexer_file::LexFile& lexfile)
 {
 	// yylex.template.c is embedded as a byte array in yylex_template.h.
 	std::string tmpl(

@@ -6,8 +6,7 @@
 #include "SubsetConstruction.hpp"
 #include <stack>
 #include <climits>
-#include <map>
-#include <string>
+
 
 using namespace automata; using namespace std;
 
