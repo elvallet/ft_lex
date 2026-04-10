@@ -92,7 +92,7 @@ pair<NFA, map<string, int>> ParsingPipeline::merge_keyed(const vector<pair<strin
 			for (char c : nfa.alphabet_)
 				merged.alphabet_.insert(c);
 
-			merged.epsilon_transitions_[super_initial].push_back(nfa.initial_state_);
+			merged.epsilon_transitions_[super_initial].push_back(nfa.initial_state_ + offset);
 
 			offset += state_count;
 		}

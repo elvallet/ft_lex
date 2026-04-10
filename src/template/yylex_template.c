@@ -45,6 +45,11 @@ int yyread(void) {
 int yylex(void) {
 	free(yytext);
 	yytext = NULL;
+	static int yyinitialized = 0;
+	if (!yyinitialized) {
+		BEGIN(INITIAL);
+		yyinitialized = 1;
+	}
 
 	@@VERBATIM_RULES@@
 
