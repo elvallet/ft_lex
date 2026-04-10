@@ -98,15 +98,31 @@ void Codegen::write_prologue(const lexer_file::LexFile& lexfile)
  */
 void Codegen::write_tables(const automata::DFA& dfa)
 {
-	const size_t	nb_states	= dfa.transitions_.size();
+	const size_t		nb_states	= dfa.transitions_.size();
+	std::vector<int>	ids;
 
-	//for (size_t i = 0; i < dfa.transitions_.size(); i++) {
-	//	std::cerr << "State " << i;
-	//	if (dfa.final_states_.count(i)) std::cerr << " (ACCEPT rule " << dfa.final_states_.at(i) << ")";
-	//	std::cerr << ":\n";
-	//	for (auto& [c, dest] : dfa.transitions_[i])
-	//		std::cerr << "  '" << c << "' -> " << dest << "\n";
-	//}
+	out_ << "#define INITIAL 0\n";
+	ids.push_back(dfa.initial_state_);
+	int count = 1;
+
+	for (auto& [name, id] : dfa.start_states_) {
+		if (name == "INITIAL") continue;
+		out_ << "#define " << name << " " << count << "\n";
+		ids.push_back(id);
+		count++;
+	}
+
+	out_ << "static int yystart_states[] = {";
+	bool first = true;
+	for (int i : ids) {
+		if (first) {
+			out_ << " " << i;
+			first = false;
+		}
+		else 
+			out_ << ", " << i;
+	}
+	out_ << " };" << std::endl;
 
 	// Dense transition table indexed by [state][unsigned char]. Missing edges -> -1.
 	out_ << "static int yy_table[" << nb_states << "][256] = {" << std::endl;
@@ -163,7 +179,6 @@ void Codegen::write_yylex(const automata::DFA& dfa, const lexer_file::LexFile& l
 	);
 
 	// Replace placeholders with generated fragments.
-	replace_all(tmpl, "@@INITIAL_STATE@@", std::to_string(dfa.initial_state_));
 	replace_all(tmpl, "@@VERBATIM_RULES@@", build_verbatim_rules(lexfile));
 	replace_all(tmpl, "@@RULES@@", build_rules_switch(lexfile));
 

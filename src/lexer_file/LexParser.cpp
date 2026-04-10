@@ -99,6 +99,13 @@ vector<string> LexParser::extract_conditions(const std::string& line, size_t* i)
 	}
 	split_conditions.push_back(conditions.substr(oldpos));
 
+	for (auto& condition : split_conditions) {
+		trim(condition, " \t\n\r\f\v");
+		if (condition != "INITIAL" && lex_file_.conditions_.find(condition) == lex_file_.conditions_.end()) {
+			throw ParseError("Undefined condition: " + condition, reader_.context(), 0);
+		}
+	}
+
 	return split_conditions;
 }
 
