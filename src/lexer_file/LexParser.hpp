@@ -39,6 +39,7 @@ private:
 
 	/** @brief Parse one rule line and complete its action if needed. */
 	Rule								parse_single_rule(const std::string& line);
+	std::vector<std::string>			extract_conditions(const std::string& line, size_t* i);
 	/** @brief Split a raw rule into `<pattern, action>`. */
 	std::pair<std::string, std::string>	split_pattern_action(const std::string& raw);
 	/** @brief Continue reading lines until an action block is syntactically closed. */

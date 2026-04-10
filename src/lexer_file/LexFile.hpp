@@ -9,10 +9,11 @@ namespace lexer_file {
  * @brief A lexer rule made of a regular-expression pattern and an action.
  */
 struct Rule {
+	std::vector<std::string>	conditions_;
 	/** Raw or macro-expanded pattern matched by the lexer. */
-	std::string	pattern_;
+	std::string					pattern_;
 	/** User C/C++ action associated with the pattern. */
-	std::string	action_;
+	std::string					action_;
 	/**
 	 * @brief True when the rule action is the pipe operator (`|`).
 	 *
