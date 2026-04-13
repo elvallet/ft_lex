@@ -14,8 +14,12 @@ struct Rule {
 	std::vector<std::string>	conditions_;
 	/** Raw or macro-expanded pattern matched by the lexer. */
 	std::string					pattern_;
+	/** Optional trailing-context regex (right side of `pattern/trailing`). */
+	std::string					trailing_;
 	/** User C/C++ action associated with the pattern. */
 	std::string					action_;
+	/** Fixed trailing length used by codegen for `yyless(yyleng - n)`. */
+	int							trailing_length_;
 	/**
 	 * @brief True when the rule action is the pipe operator (`|`).
 	 *

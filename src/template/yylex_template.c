@@ -5,6 +5,13 @@
 #define ECHO fwrite(yytext, yyleng, 1, yyout)
 #define YYBUF_INIT_SIZE 256
 #define BEGIN(x) (yycurrent_state = yystart_states[(x)])
+#define yyless(n) do { \
+	size_t yyless_n_ = (size_t)(n); \
+	yybuf_pos = match_start - yyleng + yyless_n_; \
+	match_start = match_start - yyleng + yyless_n_; \
+	yyleng = yyless_n_; \
+	yytext[yyless_n_] = '\0'; \
+} while(0)
 
 int yywrap(void);
 

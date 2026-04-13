@@ -62,7 +62,9 @@ Macros are stored as `vector` to preserve declaration order, which is semantical
 | - | - | - |
 | `conditions_` | `vector<string>` | Start conditions attached to the rule (`INITIAL` when unqualified) |
 | `pattern_` | `string` | The regex pattern, fully macro-expanded |
+| `trailing_` | `string` | Trailing-context regex (for `r/s`), fully macro-expanded |
 | `action_` | `string` | The C action block, including surrounding braces |
+| `trailing_length_` | `int` | Fixed length of `trailing_` used by codegen (`-1` when absent) |
 | `is_pipe_` | `bool` | True is the original action was a pipe |
 
 `LexFile` also stores declared start conditions:
@@ -106,10 +108,12 @@ parse()
 │   ├── parse_single_rule()
 │   │   ├── extract_conditions()
 │   │   ├── split_pattern_action()
+│   │   ├── detect_trailing()  — split `r/s` into main + trailing regex
 │   │   └── complete_action()
 ├── parse_user_code()         — section 3
 ├── expand_macros()           — resolve inter-macro references
-└── expand_rules()            — resolve macro references in patterns
+├── expand_rules()            — resolve macro references in patterns
+└── compile_trailing_length() — compile trailing regex length for codegen
 ```
 
 ---
@@ -137,6 +141,26 @@ An action may span multiple physical lines if its braces are not balanced on the
 | Block comments | `/* { */` |
 
 It reads additional lines from the `LineReader` until depth reaches zero, or throws `ParseError` on EOF.
+
+---
+
+## Trailing Context (`r/s`)
+
+Rules may use trailing context with the lex form `pattern/trailing`.
+
+- `pattern_` stores the left side (`r`).
+- `trailing_` stores the right side (`s`).
+- The action is triggered when `r` is followed by `s`, but only `r` is kept in `yytext` (handled later in code generation/runtime).
+
+`detect_trailing()` scans the pattern while honoring escapes, string literals, and character classes, so `/` is treated as a separator only when it is not escaped and not inside `[...]` or `"..."`.
+
+Current limitation: only fixed-length trailing contexts are supported.
+
+- Unsupported in trailing part: `*`, `+`, `?`
+- Unsupported when alternation yields different lengths
+- Unsupported variable quantifiers such as `{n,}`
+
+`compile_trailing_length()` parses `trailing_` with the regex parser, then computes a deterministic character length. This value is stored in `Rule::trailing_length_` and consumed by code generation.
 
 ---
 
@@ -172,6 +196,8 @@ Pass 1 - `expand_macros()`: Resolves inter-macro references. Iterates macros in 
 
 Pass 2 - `expand_rules()`: Substitutes all macro references in rule patterns. Each `{NAME}` is replaced by `(value)` - the parentheses are mandatory to preserve operator precedence (e.g. `{ALNUM}+` must expand to `([0-9]|[a-zA-Z])+`, not `[0-9]|[a-zA-Z]+`).
 
+Trailing context also participates in macro expansion (`trailing_` is expanded before length compilation).
+
 After expansion, any remaining `{NAME}` where `Name` starts with a letter or `_` is treated as an undefined macro reference and raises a `ParseError`. Quantifiers like `{2,4}` (starting with a digit) are not affected.
 
 ---
@@ -199,3 +225,5 @@ Detected errors include:
 | Unclosed action `{` | `Unclosed action block` |
 | Pipe as last rule | `Last rule cannot be pipe` |
 | Undefined macro | `Undefined macro in pattern` |
+| Invalid trailing context | `invalid trailing context` |
+| Variable-length trailing context | `variable-length trailing context is not supported` |

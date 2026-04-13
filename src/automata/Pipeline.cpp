@@ -22,7 +22,7 @@ DFA ParsingPipeline::execute(
 
 	std::vector<NFA>	nfas;
 	for (int i = 0; i < (int)rules.size(); ++i) {
-		vector<Token> postfix	= parser_.parse(rules[i].pattern_);
+		vector<Token> postfix	= parser_.parse(rules[i].pattern_ + rules[i].trailing_);
 		nfas.push_back(thompson_.compile(postfix, i));
 	}
 

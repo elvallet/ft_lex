@@ -1,6 +1,7 @@
 #include "LexParser.hpp"
+#include "../automata/Parser.hpp"
 
-using namespace lexer_file; using namespace std;
+using namespace automata; using namespace lexer_file; using namespace std;
 
 /**
  * @brief Construct a parser bound to a lexer source file.
@@ -33,6 +34,7 @@ LexFile LexParser::parse()
 
 	expand_macros();
 	expand_rules();
+	compile_trailing_length();
 	
 	return lex_file_;
 }
@@ -65,6 +67,53 @@ string& ltrim(string& s, const char* t)
 string& trim(string& s, const char* t)
 {
 	return (ltrim(rtrim(s, t), t));
+}
+
+int compute_fixed_length(const vector<Token>& postfix)
+{
+	vector<int> lengths;
+
+	for (const Token& token : postfix) {
+		switch (token.type_) {
+			case CHAR:
+			case CHARCLASS:
+				lengths.push_back(1);
+				break;
+			case CONCAT:
+			{
+				// CONCAT combines two fixed-length fragments into one fixed-length result.
+				if (lengths.size() < 2)
+					throw runtime_error("invalid trailing context");
+				int right = lengths.back();
+				lengths.pop_back();
+				int left = lengths.back();
+				lengths.pop_back();
+				lengths.push_back(left + right);
+				break;
+			}
+			case UNION:
+			{
+				// UNION is fixed-length only if both branches have the exact same length.
+				if (lengths.size() < 2)
+					throw runtime_error("invalid trailing context");
+				int right = lengths.back();
+				lengths.pop_back();
+				int left = lengths.back();
+				lengths.pop_back();
+				if (left != right)
+					throw runtime_error("variable-length trailing context is not supported");
+				lengths.push_back(left);
+				break;
+			}
+			default:
+				throw runtime_error("variable-length trailing context is not supported");
+		}
+	}
+
+	if (lengths.size() != 1)
+		throw runtime_error("invalid trailing context");
+
+	return lengths.back();
 }
 
 } // namespace
@@ -160,6 +209,71 @@ pair<string, string> LexParser::split_pattern_action(const std::string& raw)
 	return {pattern, trim(action, " \t\n\r\f\v") };
 }
 
+pair<string, string> LexParser::detect_trailing(const string& raw)
+{
+	if (raw.empty())
+		return {"", ""};
+
+	bool	bracket	= false;
+	bool	quote	= false;
+	bool	found	= false;
+	string	pattern;
+	size_t	i		= 0;
+
+	while (i < raw.size())
+	{
+		char c	= raw[i];
+
+		if (c == '\\') {
+			pattern.push_back(c);
+			i++;
+			if (i < raw.size()) {
+				pattern.push_back(raw[i]);
+				i++;
+			}
+			continue;
+		} else if (c == '[') {
+			bracket = true;
+		} else if (c == ']') {
+			bracket = false;
+		} else if (c == '"') {
+			quote = !quote;
+		} else if (c == '/' && !quote && !bracket) {
+			// Unescaped '/' outside [] and "" splits pattern/trailing.
+			found = true;
+			break;
+		}
+		pattern.push_back(c);
+		i++;
+	}
+	
+
+	if (quote || bracket) {
+		throw ParseError("Brackets or quotes should always be closed", reader_.context(), int(i));
+	}
+
+	if (!found) {
+		return {raw, ""};
+	}
+
+	string trailing = raw.substr(i + 1);
+
+	// Trailing context must stay fixed-length because codegen rewinds with yyless().
+	size_t e = trailing.find_first_of("*?+");
+	if (e != string::npos) {
+		throw ParseError("variable-length trailing context is not supported", reader_.context());
+	}
+	if (trailing.find('{') != string::npos) {
+		size_t close = trailing.find('}');
+		if (close != string::npos) {
+			string content = trailing.substr(trailing.find('{') + 1, close - trailing.find('{') - 1);
+			if (content.back() == ',')
+				throw ParseError("variable-length trailing context is not supported", reader_.context());
+		}
+	}
+	return {pattern, trailing};
+}
+
 /**
  * @brief Lexical state used while scanning C/C++ action blocks.
  */
@@ -239,8 +353,10 @@ Rule LexParser::parse_single_rule(const string& line)
 	
 	auto split = split_pattern_action(line.substr(index));
 
+	auto pattern = detect_trailing(split.first);
+
 	if (split.second == "|") {
-		return Rule{conditions, split.first, split.second, true};
+		return Rule{conditions, split.first, "", split.second, -1, true};
 	}
 
 	string completed_action;
@@ -253,7 +369,7 @@ Rule LexParser::parse_single_rule(const string& line)
 		completed_action = complete_action(split.second);
 	}
 
-	return Rule{conditions, split.first, completed_action, false};
+	return Rule{conditions, pattern.first, pattern.second, completed_action, -1, false};
 }
 
 /**
@@ -440,13 +556,23 @@ void LexParser::parse_user_code()
 void LexParser::expand_macros()
 {
 	for (size_t i = 0; i < lex_file_.macros_.size(); i++) {
-		auto& macro = lex_file_.macros_[i];
-		string pattern = "{" + macro.first + "}";
-		
 		for (size_t j = i + 1; j < lex_file_.macros_.size(); j++) {
+			auto& macro = lex_file_.macros_[i];
+			string pattern = "{" + macro.first + "}";
 			size_t pos = 0;
 			while ((pos = lex_file_.macros_[j].second.find(pattern, pos)) != string::npos) {
 				lex_file_.macros_[j].second.replace(pos, pattern.length(), "(" + macro.second + ")");
+				pos += macro.second.length() + 2;
+			}
+		}
+	}
+
+	for (auto& rule : lex_file_.rules_) {
+		for (const auto& macro : lex_file_.macros_) {
+			string pattern = "{" + macro.first + "}";
+			size_t pos = 0;
+			while ((pos = rule.trailing_.find(pattern, pos)) != string::npos) {
+				rule.trailing_.replace(pos, pattern.length(), "(" + macro.second + ")");
 				pos += macro.second.length() + 2;
 			}
 		}
@@ -478,6 +604,18 @@ void LexParser::expand_rules()
 				if (isalpha(first) || first == '_')
 					throw ParseError("Undefined macro in pattern", reader_.context(), pos);
 			}
+		}
+	}
+}
+
+void LexParser::compile_trailing_length()
+{
+	automata::Parser parser;
+
+	for (Rule& rule : lex_file_.rules_) {
+		if (!rule.trailing_.empty()) {
+			// Precompute trailing length so generated code can emit yyless(yyleng - N).
+			rule.trailing_length_ = compute_fixed_length(parser.parse(rule.trailing_));
 		}
 	}
 }

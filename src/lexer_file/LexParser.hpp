@@ -44,6 +44,7 @@ private:
 	std::vector<std::string>			extract_conditions(const std::string& line, size_t* i);
 	/** @brief Split a raw rule into `<pattern, action>`. */
 	std::pair<std::string, std::string>	split_pattern_action(const std::string& raw);
+	std::pair<std::string, std::string>	detect_trailing(const std::string& pattern);
 	/** @brief Continue reading lines until an action block is syntactically closed. */
 	std::string							complete_action(const std::string& partial);
 
@@ -64,6 +65,7 @@ private:
 	void expand_macros();
 	/** @brief Expand macros in rule patterns and reject unresolved macro-like tokens. */
 	void expand_rules();
+	void compile_trailing_length();
 
 	/** Streaming line reader with lookahead support. */
 	LineReader	reader_;

@@ -54,6 +54,13 @@ std::string build_rules_switch(const lexer_file::LexFile& lexfile)
 		out += "\t\t\tcase ";
 		out += std::to_string(i);
 		out += ":\n";
+		if (lexfile.rules_[i].trailing_length_ > 0) {
+			// Keep only the left side of r/s in yytext and push trailing chars back.
+			out += "\t\t\t\t";
+			out += "yyless(yyleng - ";
+			out	+= std::to_string(lexfile.rules_[i].trailing_length_);
+			out += ");\n";
+		}
 		out += "\t\t\t\t";
 		out += lexfile.rules_[i].action_;
 		out += "\n\t\t\t\tbreak;\n";

@@ -24,6 +24,7 @@ codegen.generate(dfa, lexfile, "lex.yy.c");
 ```
 
 The generated scanner now supports start conditions (`%s`, `%x`) through a condition-to-DFA-entry indirection used by `BEGIN(NAME)`.
+It also supports fixed-length trailing context (`r/s`) by rewinding the consumed lookahead with `yyless(...)` before executing the user action.
 
 ---
 
@@ -195,6 +196,29 @@ This bootstrap is required because DFA state `0` is not guaranteed to be the `IN
 
 This matches the POSIX specification: callers that need to retain the value across calls must `strdup` it themselves.
 
+### 4.5 Trailing Context Runtime Handling (`r/s`)
+
+For rules with trailing context, the automata side matches `r` followed by `s` as one DFA path. At dispatch time, generated code trims the matched suffix `s` from `yytext` and rewinds the input cursor so the trailing part can be rescanned by subsequent rules.
+
+Generated switch logic (per rule):
+
+```c
+case N:
+    yyless(yyleng - TRAILING_LEN);
+    { user action }
+    break;
+```
+
+`TRAILING_LEN` comes from `Rule::trailing_length_`, computed during lex file parsing.
+
+The runtime macro in the template updates all relevant cursors consistently:
+
+- `yyleng` becomes `yyleng - TRAILING_LEN`
+- `yytext` is truncated at the new length
+- `yybuf_pos` and `match_start` are moved back so trailing characters remain unread for the next match
+
+This reproduces lex trailing-context behavior for fixed-length trailing expressions.
+
 ---
 
 ## 5. Global variables in the generated file
@@ -207,6 +231,8 @@ This matches the POSIX specification: callers that need to retain the value acro
 | `yyleng` | `size_t` | Length of the last matched token |
 | `yybuffer` | `char*` | Internal input buffer |
 | `yycurrent_state` | `int` | Current DFA entry state selected by `BEGIN()` |
+
+For trailing-context rules, `yyless()` mutates `yyleng`, `yytext`, and input cursors before action execution.
 
 `yyin` and `yyout` are initialized by the `libl` runtime, not in `lex.yy.c` itself.
 
