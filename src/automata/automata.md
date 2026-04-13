@@ -140,3 +140,29 @@ This keeps scanner runtime logic simple (single table lookup path).
 
 - Subset bitmasks use `uint64_t`, so the implementation assumes up to 64 NFA states in one merged construction.
 - `INITIAL` is always injected in condition handling, even if not explicitly declared.
+
+---
+
+## 9. Regex Repetitions in Parser
+
+`Parser::tokenize_and_insert_concat` supports brace-based repetitions by rewriting them into existing unary operators and explicit concatenations.
+
+Supported forms:
+
+- `{n}`: exactly `n` repetitions of the previous fragment.
+- `{n,m}`: at least `n` and at most `m` repetitions.
+- `{n,}`: at least `n` repetitions.
+
+Previous fragment means:
+
+- one character token (`CHAR`)
+- one character class token (`CHARCLASS`)
+- one parenthesized group (`(...)`)
+
+Implementation strategy in `Parser.cpp`:
+
+- `{n}` duplicates the previous fragment `n - 1` times, inserting `CONCAT` between copies.
+- `{n,m}` first applies the `{n}` expansion, then appends `(m - n)` optional copies, each encoded as `CONCAT + fragment + QUESTION`.
+- `{n,}` first applies the `{n}` expansion, then appends `PLUS` so the last mandatory fragment becomes one-or-more, yielding a minimum of `n`.
+
+This keeps the downstream Thompson and shunting-yard logic unchanged, because repetitions are normalized into already-supported operators.

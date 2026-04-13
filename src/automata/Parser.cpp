@@ -206,6 +206,43 @@ namespace {
 		return build_char_class_tokens(allowed);
 	}
 
+	vector<Token> get_last_fragment(const vector<Token>& v)
+	{
+		vector<Token>	res;
+		int i = (int)v.size() - 1;
+
+		// Repetitions apply to the previous atom/group, not to trailing unary quantifiers.
+
+		while (i >= 0 && (v[i].type_ == STAR || v[i].type_ == PLUS || v[i].type_ == QUESTION))
+			i--;
+
+		if (i < 0)
+			throw runtime_error("invalid repetition sequence");
+
+		if (v[i].type_ == CHAR || v[i].type_ == CHARCLASS) {
+			res.push_back(v[i]);
+			return res;
+		}
+
+		if (v[i].type_ == RPAREN) {
+			int end = i;
+			int depth = 0;
+			while (i >= 0) {
+				if (v[i].type_ == RPAREN) depth++;
+				if (v[i].type_ == LPAREN) depth--;
+				if (depth == 0) break;
+				i--;
+			}
+			if (i < 0 || v[i].type_ != LPAREN)
+				throw runtime_error("invalid repetition sequence");
+			for (int j = i; j <= end; j++)
+				res.push_back(v[j]);
+			return res;
+		}
+
+		throw runtime_error("invalid repetition sequence");
+	}
+		
 } // namespace
 
 /**
@@ -271,6 +308,47 @@ vector<Token> Parser::tokenize_and_insert_concat(const string& regex) {
 					tokens.push_back(class_token);
 				}
 				continue;
+			} else if (c == '{') {
+				// Expand bounded repetitions into CONCAT/QUESTION/PLUS over the previous fragment:
+				// {n}   => fragment repeated n times
+				// {n,m} => n mandatory + (m - n) optional copies
+				// {n,}  => n mandatory + one-or-more for the last mandatory copy
+				vector<Token> to_copy = get_last_fragment(tokens);
+				i++;
+
+				string	mandatory;
+				while (i < regex.size() && regex[i] != ',' && regex[i] != '}') {
+					mandatory.push_back(regex[i]);
+					i++;
+				}
+				int n = stoi(mandatory);
+
+				for (int k = 1; k < n; k++) {
+					tokens.push_back(Token{CONCAT, '\0'});
+					tokens.insert(tokens.end(), to_copy.begin(), to_copy.end());
+				}
+
+				if (regex[i] == ',') {
+					i++;
+					if (regex[i] == '}') {
+						tokens.push_back(Token{PLUS, '\0'});
+					} else {
+						string opt;
+						while (i < regex.size() && regex[i] != '}') {
+							opt.push_back(regex[i]);
+							i++;
+						}
+						int m = stoi(opt) - n;
+						for (int k = 0; k < m; k++) {
+							tokens.push_back(Token{CONCAT, '\0'});
+							tokens.insert(tokens.end(), to_copy.begin(), to_copy.end());
+							tokens.push_back(Token{QUESTION, '\0'});
+						}
+					}
+				}
+
+				continue;
+
 			} else {
 				t.type_		=
 					c == '|' ? UNION :
