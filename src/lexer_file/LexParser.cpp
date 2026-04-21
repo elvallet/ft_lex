@@ -217,6 +217,7 @@ pair<string, string> LexParser::detect_trailing(const string& raw)
 	bool	bracket	= false;
 	bool	quote	= false;
 	bool	found	= false;
+	bool	anchor	= false;
 	string	pattern;
 	size_t	i		= 0;
 
@@ -242,6 +243,11 @@ pair<string, string> LexParser::detect_trailing(const string& raw)
 			// Unescaped '/' outside [] and "" splits pattern/trailing.
 			found = true;
 			break;
+		} else if (c == '$' && !quote && !bracket) {
+			if (i != raw.size() - 1)
+				throw ParseError("`$` is valid only as the last character of a line", reader_.context(), int(i));
+			anchor = true;
+			break;
 		}
 		pattern.push_back(c);
 		i++;
@@ -252,8 +258,13 @@ pair<string, string> LexParser::detect_trailing(const string& raw)
 		throw ParseError("Brackets or quotes should always be closed", reader_.context(), int(i));
 	}
 
-	if (!found) {
+	if (!found && !anchor) {
 		return {raw, ""};
+	}
+
+	if (anchor) {
+		string trailing = "\n";
+		return {pattern, trailing};
 	}
 
 	string trailing = raw.substr(i + 1);

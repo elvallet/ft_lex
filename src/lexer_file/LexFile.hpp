@@ -26,6 +26,7 @@ struct Rule {
 	 * Pipe rules inherit the action of the next non-pipe rule.
 	 */
 	bool		is_pipe_;
+	bool		is_bol_;
 };
 
 /**
