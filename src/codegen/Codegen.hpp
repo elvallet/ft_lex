@@ -19,32 +19,29 @@ public:
 	 * @param lexfile Parsed lexer file sections and rule actions.
 	 * @param out Output path of the generated C file.
 	 */
-	void	generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, const std::string& out);
+	void	generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostream& out);
 
 private:
-	/** @brief Output stream used by all writer helpers during generation. */
-	std::ofstream	out_;
-
 	/**
 	 * @brief Write the prologue section.
 	 * @param lexfile Parsed lexer file.
 	 */
-	void	write_prologue(const lexer_file::LexFile& lexfile);
+	void	write_prologue(const lexer_file::LexFile& lexfile, std::ostream& out);
 	/**
 	 * @brief Write DFA tables consumed by yylex().
 	 * @param dfa Deterministic automaton.
 	 */
-	void	write_tables(const automata::DFA& dfa);
+	void	write_tables(const automata::DFA& dfa, std::ostream& out);
 	/**
 	 * @brief Materialize yylex() from the embedded template and substitutions.
 	 * @param lexfile Parsed lexer file.
 	 */
-	void	write_yylex(const lexer_file::LexFile& lexfile);
+	void	write_yylex(const lexer_file::LexFile& lexfile, std::ostream& out);
 	/**
 	 * @brief Write the epilogue section.
 	 * @param lexfile Parsed lexer file.
 	 */
-	void	write_epilogue(const lexer_file::LexFile& lexfile);
+	void	write_epilogue(const lexer_file::LexFile& lexfile, std::ostream& out);
 };
 
 } // namespace codegen
