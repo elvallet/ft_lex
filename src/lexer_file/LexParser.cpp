@@ -355,7 +355,8 @@ string LexParser::complete_action(const string& partial)
 Rule LexParser::parse_single_rule(const string& line)
 {
 	vector<string>	conditions;
-	size_t	index = 0;
+	size_t	index	= 0;
+	bool	bol		= false;
 
 	if (!line.empty() && line[0] == '<') 
 		conditions	= extract_conditions(line, &index);
@@ -364,10 +365,15 @@ Rule LexParser::parse_single_rule(const string& line)
 	
 	auto split = split_pattern_action(line.substr(index));
 
+	if (!split.first.empty() && split.first[0] == '^') {
+		bol = true;
+		split.first = split.first.substr(1);
+	}
+
 	auto pattern = detect_trailing(split.first);
 
 	if (split.second == "|") {
-		return Rule{conditions, split.first, "", split.second, -1, true};
+		return Rule{conditions, split.first, "", split.second, -1, true, bol};
 	}
 
 	string completed_action;
@@ -380,7 +386,7 @@ Rule LexParser::parse_single_rule(const string& line)
 		completed_action = complete_action(split.second);
 	}
 
-	return Rule{conditions, pattern.first, pattern.second, completed_action, -1, false};
+	return Rule{conditions, pattern.first, pattern.second, completed_action, -1, false, bol};
 }
 
 /**

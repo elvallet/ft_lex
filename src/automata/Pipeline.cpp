@@ -32,22 +32,27 @@ DFA ParsingPipeline::execute(
 	vector<pair<string, vector<NFA>>>	groups;
 
 	for (auto& [cond_name, is_exclusive] : all_conditions) {
-		vector<NFA>	filtered;
+		vector<NFA>	normal;
+		vector<NFA>	bol;
 
 		for (int i = 0; i < (int)rules.size(); ++i) {
-			auto&	rule_conds			= rules[i].conditions_;
-			bool	rule_has_cond		= find(rule_conds.begin(), rule_conds.end(), cond_name) != rule_conds.end();
-			bool	rule_is_unqualified	= rule_conds.size() == 1 && rule_conds[0] == "INITIAL";
+			auto&	rule_conds		= rules[i].conditions_;
+			bool	rule_has_cond	= find(rule_conds.begin(), rule_conds.end(), cond_name) != rule_conds.end();
+			bool	is_unqualified	= rule_conds.size() == 1 && rule_conds[0] == "INITIAL";
+			bool	applies			= rule_has_cond || (!is_exclusive && is_unqualified && cond_name != "INITIAL");
 
-			if (rule_has_cond)
-				filtered.push_back(nfas[i]);
-			// Inclusive conditions inherit rules without explicit condition qualifiers.
-			else if (!is_exclusive && rule_is_unqualified && cond_name != "INITIAL")
-				filtered.push_back(nfas[i]);
+			if (!applies)
+				continue;
+
+			if (!rules[i].is_bol_)
+				normal.push_back(nfas[i]);
+			bol.push_back(nfas[i]);
 		}
 
-		if (!filtered.empty())
-			groups.push_back({cond_name, filtered});
+		if (!normal.empty())
+			groups.push_back({cond_name, normal});
+		if (!bol.empty())
+			groups.push_back({cond_name + "_BOL", bol});
 	}
 
 	auto [global_nfa, nfa_entry_points]	= merge_keyed(groups);

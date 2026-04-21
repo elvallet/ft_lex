@@ -34,7 +34,7 @@ $(NAME): $(OBJS)
 $(TEMPLATE_H): $(TEMPLATE)
 	mkdir -p $(dir $@)
 	@if command -v xxd >/dev/null 2>&1; then \
-		xxd -i -n yylex_template_c $< > $@; \
+		(cd $(dir $<) && xxd -i $(notdir $<)) > $@; \
 	else \
 		{ \
 			echo "unsigned char yylex_template_c[] = {"; \

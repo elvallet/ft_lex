@@ -15,6 +15,8 @@
 
 int yywrap(void);
 
+static int yy_at_bol = 1;
+
 static char		*yybuffer		= NULL;
 static size_t	yybuf_size		= 0;
 static size_t	yybuf_capa		= 0;
@@ -63,7 +65,10 @@ int yylex(void) {
 	static size_t match_start = 0;
 
 	while (1) {
-		int		state			= yycurrent_state;
+		int	state	= yy_at_bol
+			? yystart_states[yycurrent_state + YYNB_CONDITIONS]
+			: yystart_states[yycurrent_state];
+
 		int 	last_match		= -1;
 		size_t	last_match_pos	= match_start;
 	
@@ -101,6 +106,8 @@ int yylex(void) {
 		yytext		= strndup(yybuffer + match_start, yyleng);
 		yybuf_pos	= last_match_pos;
 		match_start	= last_match_pos;
+
+		yy_at_bol	= (yyleng > 0 && yytext[yyleng - 1] == '\n');
 
 		switch (last_match) {
 @@RULES@@

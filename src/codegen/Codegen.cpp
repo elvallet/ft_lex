@@ -114,10 +114,20 @@ void Codegen::write_tables(const automata::DFA& dfa)
 
 	// Export condition names as BEGIN() indices used by generated scanner code.
 	for (auto& [name, id] : dfa.start_states_) {
-		if (name == "INITIAL") continue;
+		if (name == "INITIAL" || (name.find("_BOL") != std::string::npos)) continue;
 		out_ << "#define " << name << " " << count << "\n";
 		ids.push_back(id);
 		count++;
+	}
+
+	out_ << "#define YYNB_CONDITIONS " << count << "\n";
+	ids.push_back(dfa.start_states_.at("INITIAL_BOL"));
+
+	int count_bol = 1;
+	for (auto& [name, id] : dfa.start_states_) {
+		if (name == "INITIAL_BOL" || (name.find("_BOL") == std::string::npos)) continue;
+		ids.push_back(id);
+		count_bol++;
 	}
 
 	// BEGIN(x) selects a DFA entry state through this indirection table.
