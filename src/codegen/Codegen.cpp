@@ -107,9 +107,11 @@ void Codegen::write_tables(const automata::DFA& dfa)
 {
 	const size_t		nb_states	= dfa.transitions_.size();
 	std::vector<int>	ids;
+	std::vector<std::string> base_conditions;
 
 	out_ << "#define INITIAL 0\n";
 	ids.push_back(dfa.initial_state_);
+	base_conditions.push_back("INITIAL");
 	int count = 1;
 
 	// Export condition names as BEGIN() indices used by generated scanner code.
@@ -117,17 +119,19 @@ void Codegen::write_tables(const automata::DFA& dfa)
 		if (name == "INITIAL" || (name.find("_BOL") != std::string::npos)) continue;
 		out_ << "#define " << name << " " << count << "\n";
 		ids.push_back(id);
+		base_conditions.push_back(name);
 		count++;
 	}
 
 	out_ << "#define YYNB_CONDITIONS " << count << "\n";
-	ids.push_back(dfa.start_states_.at("INITIAL_BOL"));
 
-	int count_bol = 1;
-	for (auto& [name, id] : dfa.start_states_) {
-		if (name == "INITIAL_BOL" || (name.find("_BOL") == std::string::npos)) continue;
-		ids.push_back(id);
-		count_bol++;
+	for (const std::string& cond_name : base_conditions) {
+		std::string bol_name = cond_name + "_BOL";
+		auto bol_it = dfa.start_states_.find(bol_name);
+		if (bol_it != dfa.start_states_.end())
+			ids.push_back(bol_it->second);
+		else
+			ids.push_back(dfa.start_states_.at(cond_name));
 	}
 
 	// BEGIN(x) selects a DFA entry state through this indirection table.

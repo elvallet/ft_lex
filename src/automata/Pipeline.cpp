@@ -34,6 +34,7 @@ DFA ParsingPipeline::execute(
 	for (auto& [cond_name, is_exclusive] : all_conditions) {
 		vector<NFA>	normal;
 		vector<NFA>	bol;
+		bool			has_bol_rule = false;
 
 		for (int i = 0; i < (int)rules.size(); ++i) {
 			auto&	rule_conds		= rules[i].conditions_;
@@ -44,14 +45,19 @@ DFA ParsingPipeline::execute(
 			if (!applies)
 				continue;
 
-			if (!rules[i].is_bol_)
+			if (rules[i].is_bol_) {
+				has_bol_rule = true;
+				bol.push_back(nfas[i]);
+			}
+			else {
 				normal.push_back(nfas[i]);
-			bol.push_back(nfas[i]);
+				bol.push_back(nfas[i]);
+			}
 		}
 
 		if (!normal.empty())
 			groups.push_back({cond_name, normal});
-		if (!bol.empty())
+		if (has_bol_rule && !bol.empty())
 			groups.push_back({cond_name + "_BOL", bol});
 	}
 

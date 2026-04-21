@@ -4,7 +4,7 @@
 
 #define ECHO fwrite(yytext, yyleng, 1, yyout)
 #define YYBUF_INIT_SIZE 256
-#define BEGIN(x) (yycurrent_state = yystart_states[(x)])
+#define BEGIN(x) (yycurrent_state = (x))
 #define yyless(n) do { \
 	size_t yyless_n_ = (size_t)(n); \
 	yybuf_pos = match_start - yyleng + yyless_n_; \
