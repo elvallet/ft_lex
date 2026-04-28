@@ -45,6 +45,7 @@ struct LexFile {
 	std::vector<std::string>							verbatim_rules_;
 	/** Declared start conditions: key=name, value=true for `%x`, false for `%s`. */
 	std::map<std::string, bool>							conditions_;	// true if exclusive (%x) false if inclusive (%s)
+	bool												array_mode_ = false;
 };
 
 } // namespace lexer_file

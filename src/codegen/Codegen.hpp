@@ -26,22 +26,22 @@ private:
 	 * @brief Write the prologue section.
 	 * @param lexfile Parsed lexer file.
 	 */
-	void	write_prologue(const lexer_file::LexFile& lexfile, std::ostream& out);
+	void	write_prologue(const lexer_file::LexFile& lexfile, std::string& tmpl);
 	/**
 	 * @brief Write DFA tables consumed by yylex().
 	 * @param dfa Deterministic automaton.
 	 */
-	void	write_tables(const automata::DFA& dfa, std::ostream& out);
+	void	write_tables(const automata::DFA& dfa, std::string& tmpl);
 	/**
 	 * @brief Materialize yylex() from the embedded template and substitutions.
 	 * @param lexfile Parsed lexer file.
 	 */
-	void	write_yylex(const lexer_file::LexFile& lexfile, std::ostream& out);
+	void	write_yylex(const lexer_file::LexFile& lexfile, std::string& tmpl);
 	/**
 	 * @brief Write the epilogue section.
 	 * @param lexfile Parsed lexer file.
 	 */
-	void	write_epilogue(const lexer_file::LexFile& lexfile, std::ostream& out);
+	void	write_epilogue(const lexer_file::LexFile& lexfile, std::string& tmpl);
 };
 
 } // namespace codegen

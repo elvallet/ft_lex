@@ -464,6 +464,13 @@ void LexParser::parse_conditions(const string& line)
 	size_t	i		= 1;
 
 	if (i >= line.size()) throw runtime_error("missing directive after '%'");
+	if (line == "%array") {
+		lex_file_.array_mode_	= true;
+		return;
+	} else if (line == "%pointer") {
+		return;
+	}
+	
 	if (line[i] == 'p' || line[i] == 'n' || line[i] == 'a' || line[i] == 'e' || line[i] == 'o')
 		return;
 	if (line[i] != 's' && line[i] != 'x') throw runtime_error(string("unknown directive %") + line[i]);
