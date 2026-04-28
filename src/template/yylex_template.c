@@ -5,6 +5,11 @@
 #define ECHO fwrite(yytext, yyleng, 1, yyout)
 #define YYBUF_INIT_SIZE 256
 #define BEGIN(x) (yycurrent_state = (x))
+
+static int		yymore_flag	= 0;
+static size_t	yymore_len	= 0;
+static char		*yymore_text	__attribute__((unused)) = NULL;
+#define yymore() (yymore_flag = 1)
 #define yyless(n) do { \
 	size_t yyless_n_ = (size_t)(n); \
 	yybuf_pos = match_start - yyleng + yyless_n_; \
@@ -26,7 +31,7 @@ static int		yycurrent_state	= 0;
 char	*yytext	= NULL;
 size_t	yyleng	= 0;
 FILE	*yyin	= NULL;
-FILE	*yyout = NULL;
+FILE	*yyout	= NULL;
 
 int yyread(void) {
 	if (yybuf_pos < yybuf_size)
@@ -52,8 +57,15 @@ int yyread(void) {
 }
 
 int yylex(void) {
-	free(yytext);
-	yytext = NULL;
+	if (yymore_flag) {
+		yymore_flag = 0;
+	} else {
+		free(yytext);
+		yytext	= NULL;
+		yyleng	= 0;
+		yymore_len = 0;
+	}
+
 	static int yyinitialized = 0;
 	if (!yyinitialized) {
 		BEGIN(INITIAL);
@@ -102,15 +114,58 @@ int yylex(void) {
 			continue;
 		}
 
-		yyleng		= last_match_pos - match_start;
+		yyleng	= last_match_pos - match_start;
+		char	*old_yytext = yytext;
+
 		yytext		= strndup(yybuffer + match_start, yyleng);
-		yybuf_pos	= last_match_pos;
 		match_start	= last_match_pos;
+		yybuf_pos	= last_match_pos;
 
 		yy_at_bol	= (yyleng > 0 && yytext[yyleng - 1] == '\n');
+
+		
+		if (yymore_len > 0 && yymore_text) {
+			size_t total_len	= yymore_len + yyleng;
+			char *combined		= malloc(total_len + 1);
+
+			memcpy(combined, yymore_text, yymore_len);
+			memcpy(combined + yymore_len, yytext, yyleng);
+			combined[total_len] = '\0';
+
+			free(yymore_text);
+			free(old_yytext);
+			
+			yytext		= combined;
+			yyleng		= total_len;
+			yymore_text	= NULL;
+			yymore_len	= 0;
+		} else {
+			free(old_yytext);
+		}
 
 		switch (last_match) {
 @@RULES@@
 		}
+
+		if (yymore_flag == 0) {
+			if (yymore_text) {
+				free(yymore_text);
+				yymore_text = NULL;
+			}
+			yymore_len = 0;
+			free(yytext);
+			yytext = NULL;
+		} else {
+			if (yymore_text) {
+				free(yymore_text);
+			}
+			yymore_text	= yytext;
+			yymore_len	= yyleng;
+			yytext		= NULL;
+			yyleng		= 0;
+		}
+		
+		yymore_flag	= 0;
+
 	}
 }

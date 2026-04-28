@@ -7,43 +7,73 @@
 #include "codegen/Codegen.hpp"
 #include "lexer_file/LexParser.hpp"
 
-int main(int argc, char **argv)
+struct Arguments
 {
+	std::string	input_file;
+	std::string	output_file;
+	bool		output_to_file = true;
+};
+
+static void print_usage(const std::string &prog_name)
+{
+	std::cerr << "Usage: " << prog_name << " <input.l> [-nt] [output.c]" << std::endl;
+	std::cerr << "  -n : (unused)" << std::endl;
+	std::cerr << "  -t : output to stdout instead of file" << std::endl;
+}
+
+static Arguments parse_arguments(int argc, char **argv)
+{
+	Arguments args;
+
 	if (argc < 2) {
-		std::cerr << "Usage: " << argv[0] << " <input.l> -[tn] [output.c]" << std::endl;
-		return 1;
+		print_usage(argv[0]);
+		throw std::invalid_argument("Missing required argument: <input.l>");
 	}
 
-	const std::string	input_file	= argv[1];
-	std::string			output_file;
-	bool				outfile		= true;
+	args.input_file = argv[1];
 
 	for (int i = 2; i < argc; i++) {
-		if (argv[i] && argv[i] == "-n")
+		const std::string arg = argv[i];
+		
+		if (arg == "-n") {
 			continue;
-		else if (argv[i] && argv[i] == "-t")
-			outfile = false;
-		else if (i == argc - 2 && argv[i])
-			output_file = argv[i];
-		else {
-			std::cerr << "Usage: " << argv[0] << " <input.l> -[tn] [output.c]" << std::endl;
-			return 1;
+		} else if (arg == "-t") {
+			args.output_to_file = false;
+		} else if (arg[0] == '-') {
+			print_usage(argv[0]);
+			throw std::invalid_argument("Unknown flag: " + arg);
+		} else {
+			args.output_file = arg;
 		}
 	}
 
-	if (outfile && output_file.empty())
-		output_file = "lex.yy.c";
+	if (args.output_to_file && args.output_file.empty())
+		args.output_file = "lex.yy.c";
+
+	return args;
+}
+
+int main(int argc, char **argv)
+{
+	Arguments args;
 
 	try {
-		lexer_file::LexParser		parser(input_file);
+		args = parse_arguments(argc, argv);
+	} catch (const std::invalid_argument &err) {
+		std::cerr << "Error: " << err.what() << std::endl;
+		return 1;
+	}
+
+	try {
+		lexer_file::LexParser		parser(args.input_file);
 		lexer_file::LexFile			lex_file = parser.parse();
 		automata::ParsingPipeline	pipeline;
 		automata::DFA				dfa = pipeline.execute(lex_file.rules_, lex_file.conditions_);
 		codegen::Codegen			generator;
 		std::ofstream				ofs;
 
-		if (outfile)
-			ofs.open(output_file.c_str(), std::ios::out | std::ios::trunc);
+		if (args.output_to_file)
+			ofs.open(args.output_file.c_str(), std::ios::out | std::ios::trunc);
 		else
 			ofs.open("/dev/stdout", std::ios::out);
 
