@@ -2,7 +2,7 @@ NAME		:= ft_lex
 MAKEFLAGS	+= --no-print-directory
 
 CXX			:= c++
-CXXFLAGS	:= -Wall -Wextra -Werror -std=c++17
+CXXFLAGS	:= -Wall -Wextra -Werror -std=c++17 -g3
 
 # --- Sources ---
 SRCDIR		:= src/

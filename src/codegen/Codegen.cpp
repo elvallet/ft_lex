@@ -3,6 +3,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <sstream>
+#include <algorithm>
 
 using namespace codegen;
 
@@ -35,34 +36,30 @@ std::string build_verbatim_rules(const lexer_file::LexFile& lexfile)
 {
 	std::string out;
 
-	for (size_t i = 0; i < lexfile.verbatim_rules_.size(); ++i) {
-		out += lexfile.verbatim_rules_[i];
+	for (auto& line : lexfile.verbatim_rules_) {
+		out += line;
 		out += "\n";
 	}
 	return out;
 }
 
 /**
- * @brief Build the switch body dispatching matched rule indices to actions.
+ * @brief Build the switch body dispatching rule indices to user actions.
+ * 
+ * Trailing context is handled entirely by the runtime (committed_len
+ * already excludes the trailing part before the action runs), so no
+ * yyless() is emitted here.
+ * 
  * @param lexfile Parsed lexer file.
  * @return Generated C switch cases.
  */
 std::string build_rules_switch(const lexer_file::LexFile& lexfile)
 {
 	std::string out;
-
 	for (size_t i = 0; i < lexfile.rules_.size(); ++i) {
 		out += "\t\t\tcase ";
 		out += std::to_string(i);
-		out += ":\n";
-		if (lexfile.rules_[i].trailing_length_ > 0) {
-			// Keep only the left side of r/s in yytext and push trailing chars back.
-			out += "\t\t\t\t";
-			out += "yyless(yyleng - ";
-			out	+= std::to_string(lexfile.rules_[i].trailing_length_);
-			out += ");\n";
-		}
-		out += "\t\t\t\t";
+		out += ":\n\t\t\t\t";
 		out += lexfile.rules_[i].action_;
 		out += "\n\t\t\t\tbreak;\n";
 	}
@@ -73,10 +70,10 @@ std::string build_rules_switch(const lexer_file::LexFile& lexfile)
 } // namespace
 
 /**
- * @brief Generate scanner output by writing all sections in order.
+ * @brief Generate the full scanner source by substituting all template markers.
  * @param dfa Deterministic automaton.
  * @param lexfile Parsed lexer file.
- * @param out Output file path.
+ * @param out Output stream.
  */
 void Codegen::generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostream& out)
 {
@@ -89,9 +86,8 @@ void Codegen::generate(const automata::DFA& dfa, const lexer_file::LexFile& lexf
 	std::string mode = lexfile.array_mode_ ? "YYARRAY_MODE" : "YYPOINTER_MODE";
 	replace_all(tmpl, "@@YYTEXT_MODE@@", mode);
 
-	// Generated file layout: prologue + tables + yylex + epilogue.
 	write_prologue(lexfile, tmpl);
-	write_tables(dfa, tmpl);
+	write_tables(dfa, lexfile, tmpl);
 	write_yylex(lexfile, tmpl);
 	write_epilogue(lexfile, tmpl);
 
@@ -108,24 +104,41 @@ void Codegen::write_prologue(const lexer_file::LexFile& lexfile, std::string& tm
 }
 
 /**
- * @brief Emit transition and accept tables used by generated yylex().
+ * @brief Emit all DFA tables into the @@TABLES@@ marker.
+ * 
+ * Format:
+ *  yyaccept_data[]		- flat array of YYAcceptEntry {rule_id, trailing_len}
+ *  yyaccept_offset[S]	- index into yyaccept_data for state S (-1 if non-accepting)
+ *  yyaccept_count[S]	- number of entries for state S
+ * 
+ * Rules are sorted by priority (ascending rule index = higher priority),
+ * so index 0 for a given state is always the highest-priority rule.
+ * The runtime pushes them in reverse order so the best rule ends up on top.
+ * 
+ * trailing_len for each rule is read from lexfile.rules_[rule_id].trailing_length_
+ * and set to -1 when the rule has no trailing context.
+ * 
  * @param dfa Deterministic automaton.
  */
-void Codegen::write_tables(const automata::DFA& dfa, std::string& tmpl)
+void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::string& tmpl)
 {
-	const size_t		nb_states	= dfa.transitions_.size();
-	std::vector<int>	ids;
-	std::vector<std::string> base_conditions;
+	const size_t	nb_states	= dfa.transitions_.size();
 	std::ostringstream	oss;
+
+	// ------------------------------------------------------------------------
+	// Start condition defines and yystart_states[]
+	// ------------------------------------------------------------------------
+	std::vector<int>			ids;
+	std::vector<std::string>	base_conditions;
 
 	oss << "#define INITIAL 0\n";
 	ids.push_back(dfa.initial_state_);
 	base_conditions.push_back("INITIAL");
-	int count = 1;
+	int	count	= 1;
 
-	// Export condition names as BEGIN() indices used by generated scanner code.
 	for (auto& [name, id] : dfa.start_states_) {
-		if (name == "INITIAL" || (name.find("_BOL") != std::string::npos)) continue;
+		if (name == "INITIAL" || name.find("_BOL") != std::string::npos)
+			continue;
 		oss << "#define " << name << " " << count << "\n";
 		ids.push_back(id);
 		base_conditions.push_back(name);
@@ -134,67 +147,89 @@ void Codegen::write_tables(const automata::DFA& dfa, std::string& tmpl)
 
 	oss << "#define YYNB_CONDITIONS " << count << "\n";
 
-	for (const std::string& cond_name : base_conditions) {
-		std::string bol_name = cond_name + "_BOL";
-		auto bol_it = dfa.start_states_.find(bol_name);
-		if (bol_it != dfa.start_states_.end())
-			ids.push_back(bol_it->second);
-		else
-			ids.push_back(dfa.start_states_.at(cond_name));
+	for (const std::string& cond : base_conditions) {
+		std::string	bol	= cond + "_BOL";
+		auto it	= dfa.start_states_.find(bol);
+		ids.push_back(it != dfa.start_states_.end()
+			? it->second
+			: dfa.start_states_.at(cond));
 	}
 
-	// BEGIN(x) selects a DFA entry state through this indirection table.
 	oss << "static int yystart_states[] = {";
-	bool first = true;
-	for (int i : ids) {
-		if (first) {
-			oss << " " << i;
-			first = false;
-		}
-		else 
-			oss << ", " << i;
+	for (size_t i = 0; i < ids.size(); i++) {
+		oss << (i == 0 ? " " : ", ") << ids[i];
 	}
-	oss << " };" << std::endl;
+	oss << " };\n";
 
-	// Dense transition table indexed by [state][unsigned char]. Missing edges -> -1.
-	oss << "static int yytable[" << nb_states << "][256] = {" << std::endl;
-	for (size_t i = 0; i < nb_states; i++) {
-		oss << "\t{ ";
-		bool first2 = true;
+	// ------------------------------------------------------------------------
+	// yytable[S][256] - transition table
+	// ------------------------------------------------------------------------
+	oss << "static int yytable[" << nb_states << "][256] = {\n";
+	for (size_t s = 0; s < nb_states; s++) {
+		oss << "\t{";
 		for (int c = 0; c < 256; c++) {
-			if (!first2) {
-				oss << ", ";
-			} else {
-				first2 = false;
-			}
-			auto found	= dfa.transitions_[i].find(static_cast<char>(c));
-			if (found != dfa.transitions_[i].end()) {
-				oss << found->second;
-			} else {
-				oss << "-1";
-			}
+			auto it = dfa.transitions_[s].find(static_cast<char>(c));
+			oss	<< (c == 0 ? " " : ", ")
+				<< (it != dfa.transitions_[s].end() ? it->second : -1);
 		}
-		oss << "}," << std::endl;
+		oss << " },\n";
 	}
-	oss << "};" << std::endl;
+	oss << "};\n";
 
-	// yyaccept[state] stores winning rule index, or -1 if non-accepting.
-	oss << "static int yyaccept[" << nb_states << "] = { ";
-	bool first3 = true;
-	for (size_t i = 0; i < nb_states; i++) {
-		if (!first3) {
-			oss << ", ";
-		} else {
-			first3 = false;
-		}
-		auto found = dfa.final_states_.find(static_cast<int>(i));
-		if (found != dfa.final_states_.end()) {
-			oss << found->second;
-		} else {
-			oss << "-1";
+	// ------------------------------------------------------------------------
+	// yyaccept_data[] - flat array of {rule_id, trailing_len} entries.
+	//
+	// For each state, rules are stored by ascending rule index
+	// (index 0 = highest priority). trailing_len is -1 when the rule
+	// carries no trailing context.
+	// ------------------------------------------------------------------------
+	std::vector<int>	offsets(nb_states, -1);
+	std::vector<int>	counts(nb_states, 0);
+	std::vector<std::pair<int, int>>	flat;	// {rule_id, trailing_len}
+
+	for (size_t s = 0; s < nb_states; s++) {
+		auto found	= dfa.final_states_.find(static_cast<int>(s));
+		if (found == dfa.final_states_.end() || found->second.empty())
+			continue;
+
+		std::vector<int>	sorted	= found->second;
+		std::sort(sorted.begin(), sorted.end());
+
+		offsets[s]	= static_cast<int>(flat.size());
+		counts[s]	= static_cast<int>(sorted.size());
+
+		for (int rule_id : sorted) {
+			// trailing_length_ is only meaningful when trailing_ is non-empty.
+			int	tlen	= -1;
+			if (rule_id >= 0 && static_cast<size_t>(rule_id) < lexfile.rules_.size()
+				&& !lexfile.rules_[rule_id].trailing_.empty()) {
+					tlen	= lexfile.rules_[rule_id].trailing_length_;
+				}
+				flat.push_back({rule_id, tlen});
 		}
 	}
-	oss << "};" << std::endl;
+	oss << "static YYAcceptEntry yyaccept_data[] = {\n";
+	if (flat.empty()) {
+		// Avoid a zero-length array (not valid C89, guard for safety).
+		oss << "\t{ -1, -1 }\n";
+	} else {
+		for (auto& [rid, tlen] : flat) {
+			oss << "\t{ " << rid << ", " << tlen << " },\n";
+		}
+	}
+	oss <<"};\n";
+
+	oss << "static int yyaccept_offset[" << nb_states << "] = {";
+	for (size_t s = 0; s < nb_states; s++) {
+		oss << (s == 0 ? " " : ", ") << offsets[s];
+	}
+	oss << " };\n";
+
+	oss << "static int yyaccept_count[" << nb_states << "] = {";
+	for (size_t s = 0; s < nb_states; s++) {
+		oss << (s == 0 ? " " : ", ") << counts[s];
+	}
+	oss << " };\n";
 
 	replace_all(tmpl, "@@TABLES@@", oss.str());
 }

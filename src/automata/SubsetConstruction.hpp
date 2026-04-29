@@ -63,7 +63,7 @@ private:
 	 * When a subset contains multiple NFA final states, the smallest rule index
 	 * is selected to preserve lexer rule priority.
 	 */
-	std::unordered_map<int, int>	final_states(const NFA& nfa);
+	std::unordered_map<int, std::vector <int>>	final_states(const NFA& nfa);
 };
 
 } // namespace automata

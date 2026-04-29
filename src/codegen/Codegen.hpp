@@ -31,7 +31,7 @@ private:
 	 * @brief Write DFA tables consumed by yylex().
 	 * @param dfa Deterministic automaton.
 	 */
-	void	write_tables(const automata::DFA& dfa, std::string& tmpl);
+	void	write_tables(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::string& tmpl);
 	/**
 	 * @brief Materialize yylex() from the embedded template and substitutions.
 	 * @param lexfile Parsed lexer file.

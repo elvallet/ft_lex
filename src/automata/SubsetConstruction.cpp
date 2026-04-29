@@ -6,6 +6,7 @@
 #include "SubsetConstruction.hpp"
 #include <stack>
 #include <climits>
+#include <algorithm>
 
 
 using namespace automata; using namespace std;
@@ -143,23 +144,25 @@ uint64_t SubsetConstruction::delta(const NFA& nfa, uint64_t states, char symbol)
 /**
  * @brief Derive accepting DFA states from discovered NFA subsets.
  * @param nfa Source NFA.
- * @return Map of accepting DFA state ids to the selected rule index.
+ * @return Map of accepting DFA state ids to rule indices (all matching rules).
  *
- * If several rule finals are present in one subset, the smallest rule index
- * is kept.
+ * All rule indices from NFA final states present in a subset are collected
+ * and sorted by priority (index). The collection preserves all matching rules.
  */
-unordered_map<int, int> SubsetConstruction::final_states(const NFA& nfa) {
-	unordered_map<int, int> res;
+unordered_map<int, vector <int>> SubsetConstruction::final_states(const NFA& nfa) {
+	unordered_map<int, vector <int>> res;
 
 	for (auto& [mask, dfa_id] : seen_) {
-		int min_rule = INT_MAX;
+		vector<int> rules;
 		for (auto& [final_bit, rule_index] : nfa.final_states_) {
 			if (mask & (1ULL << final_bit)) {
-				min_rule = min(min_rule, rule_index);
+				rules.push_back(rule_index);
 			}
 		}
-		if (min_rule != INT_MAX) {
-			res[dfa_id] = min_rule;
+		if (!rules.empty()) {
+			// Sort by priority (lower index = higher priority)
+			std::sort(rules.begin(), rules.end());
+			res[dfa_id] = rules;
 		}
 	}
 
