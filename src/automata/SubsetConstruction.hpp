@@ -58,10 +58,11 @@ private:
 	/**
 	 * @brief Compute DFA accepting states from discovered subsets.
 	 * @param nfa Source NFA.
-	 * @return Map of DFA accepting state id -> selected rule index.
+	 * @return Map of DFA accepting state id -> vector of matching rule indices (sorted ascending).
 	 *
-	 * When a subset contains multiple NFA final states, the smallest rule index
-	 * is selected to preserve lexer rule priority.
+	 * When a subset contains multiple NFA final states, all matching rule indices are collected
+	 * and stored in ascending order (index 0 = highest priority). This allows the runtime to
+	 * examine all possibilities and apply the priority-based selection at dispatch time.
 	 */
 	std::unordered_map<int, std::vector <int>>	final_states(const NFA& nfa);
 };

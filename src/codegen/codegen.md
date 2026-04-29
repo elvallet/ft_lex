@@ -49,11 +49,21 @@ The DFA is serialized as start-condition metadata plus two static C arrays.
 
 Codegen emits:
 
-- one macro per start condition (`#define INITIAL 0`, `#define COMMENT 1`, ...)
-- one lookup table mapping macro index to DFA entry state:
+- one macro per start condition (`#define INITIAL 0`, `#define COMMENT 1`, ...), excluding BOL variants
+- one macro for the total number of conditions: `#define YYNB_CONDITIONS N`
+- one lookup table mapping macro index to DFA entry state for **both** normal and BOL variants:
 
 ```c
-static int yystart_states[] = { dfa_state_for_INITIAL, dfa_state_for_COMMENT, ... };
+#define INITIAL 0
+#define COMMENT 1
+#define YYNB_CONDITIONS 2
+
+static int yystart_states[] = {
+    dfa_state_for_INITIAL,      // index 0 (INITIAL condition)
+    dfa_state_for_COMMENT,      // index 1 (COMMENT condition)
+    dfa_state_for_INITIAL_BOL,  // index 2 (INITIAL_BOL variant, auto-added for BOL rules)
+    dfa_state_for_COMMENT_BOL   // index 3 (COMMENT_BOL variant)
+};
 ```
 
 `BEGIN(X)` in the runtime template does:
@@ -62,14 +72,14 @@ static int yystart_states[] = { dfa_state_for_INITIAL, dfa_state_for_COMMENT, ..
 #define BEGIN(x) (yycurrent_state = yystart_states[(x)])
 ```
 
-So user code switches condition by selecting the corresponding DFA start state.
+So user code switches condition by selecting the corresponding DFA start state. BOL variants are automatically managed by the runtime when a newline is matched.
 
-### 3.2 Transition table — `yy_table`
+### 3.2 Transition table — `yytable`
 
 A 2D array of dimensions `NB_STATES × 256`. Each cell contains the destination state when consuming a given character, or `-1` when no transition exists.
 
 ```c
-static int yy_table[NB_STATES][256] = {
+static int yytable[NB_STATES][256] = {
     /* state 0 */ { -1, -1, ..., 1, ..., -1 },
     /* state 1 */ { -1, -1, ..., -1, ..., 2 },
     /* ...     */
@@ -80,21 +90,40 @@ static int yy_table[NB_STATES][256] = {
 
 **Important:** always cast `c` to `unsigned char` before using it as a map key. On platforms where `char` is signed, values above 127 produce negative indices.
 
-### 3.3 Accepting states table — `yy_accept`
+### 3.3 Accepting states tables
 
-A 1D array of size `NB_STATES`. Each cell contains the rule index if the state is accepting, or `-1` otherwise.
+The accepting states are stored across three complementary tables to support multiple rules per accepting state:
 
 ```c
-static int yy_accept[NB_STATES] = { -1, -1, 2, -1, 0 };
+typedef struct {
+    int rule_id;
+    int trailing_len;
+} YYAcceptEntry;
+
+static YYAcceptEntry yyaccept_data[] = {
+    { 0, -1 },   // rule 0, no trailing
+    { 2, 3 },    // rule 2, trailing length 3
+    { 1, -1 },   // rule 1, no trailing
+    // ...
+};
+
+static int yyaccept_offset[NB_STATES] = { 0, 1, 3, -1, ... };
+static int yyaccept_count[NB_STATES] = { 1, 2, 1, 0, ... };
 ```
 
-**Generation:** for each state `i`, look up `dfa.final_states_.find(i)`. Write the rule index if found, `-1` otherwise.
+**Purpose:**
 
-**Why rule index and not a boolean:** `yylex()` needs to know not just that a match occurred, but which action to dispatch. Multiple accepting states correspond to different rules — the index is the direct key into the switch dispatch.
+- `yyaccept_data[]` is a flat array of all accept entries, sorted by state
+- `yyaccept_offset[S]` indexes into `yyaccept_data[]` for state S (or `-1` if non-accepting)
+- `yyaccept_count[S]` tells the runtime how many rules to check for state S
+
+**Rule ordering:** Rules within each state are stored in **ascending index order** (index 0 = highest priority). The runtime pushes them onto a stack in reverse order so the highest-priority rule ends up on top.
+
+**Trailing context:** `trailing_len` is set from `Rule::trailing_length_` if the rule has trailing context (non-empty `Rule::trailing_`), or `-1` otherwise. The runtime uses this to call `yyless()` before executing the action.
 
 ### 3.4 Prerequisite: contiguous state numbering
 
-Both tables require that DFA state IDs are contiguous integers from `0` to `N-1`. This is guaranteed by the subset construction algorithm, which assigns IDs sequentially as new states are discovered. No remapping is needed.
+All tables require that DFA state IDs are contiguous integers from `0` to `N-1`. This is guaranteed by the subset construction algorithm, which assigns IDs sequentially as new states are discovered. No remapping is needed.
 
 ---
 
@@ -102,12 +131,16 @@ Both tables require that DFA state IDs are contiguous integers from `0` to `N-1`
 
 ### 4.1 Template approach
 
-Rather than generating `yylex()` character by character via `out_ <<`, the body of `yylex()` is stored in a static template file `yylex_template.c`. This template contains the fixed DFA simulation logic with two substitution markers:
+Rather than generating `yylex()` character by character, the body is stored in a static template file `yylex_template.c` with substitution markers for codegen:
 
 | Marker | Replaced with |
 | - | - |
-| `@@VERBATIM_RULES@@` | Contents of `LexFile::verbatim_rules_` |
-| `@@RULES@@` | Generated `case N: { action } break;` blocks |
+| `@@PROLOGUE@@` | User verbatim C code from section 1 (`LexFile::verbatim_top_`) |
+| `@@YYTEXT_MODE@@` | `YYARRAY_MODE` or `YYPOINTER_MODE` depending on `LexFile::array_mode_` |
+| `@@TABLES@@` | All DFA tables: condition defines, `yytable`, `yyaccept_*` |
+| `@@VERBATIM_RULES@@` | Indented verbatim code lines from section 2 |
+| `@@RULES@@` | Generated `case N: { action } break;` blocks for each rule |
+| `@@EPILOGUE@@` | User verbatim C code from section 3 (`LexFile::verbatim_bottom_`) |
 
 The template is embedded in the binary at compile time via `xxd -i`:
 
@@ -116,108 +149,163 @@ yylex_template.h: yylex_template.c
     xxd -i $< > $@
 ```
 
-This produces an `unsigned char yylex_template_c[]` array included directly in `Codegen.cpp`.
+This produces an `unsigned char yylex_template_c[]` array (and size `yylex_template_c_len`) included in `Codegen.cpp`.
 
 ### 4.2 Input buffer
 
-`yylex()` maintains an internal growable buffer `yybuffer` to support backtracking without seeking in `yyin` (which may be `stdin`, a non-seekable stream).
+`yylex()` maintains an internal growable buffer `yybuf` to support backtracking without seeking in `yyin` (which may be `stdin`, a non-seekable stream).
 
-Two cursors are maintained separately:
+State variables maintained separately:
 
 | Variable | Role |
 | - | - |
-| `yybuf_size` | Number of characters written into the buffer |
-| `yybuf_capa` | Allocated capacity (grows geometrically) |
-| `yybuf_pos` | Read cursor — where the DFA simulation currently is |
+| `yybuf_size` | Number of characters currently stored in buffer |
+| `yybuf_capa` | Allocated capacity (grows geometrically by doubling) |
+| `yybuf_pos` | Read cursor — current position during DFA simulation |
 
-`yyread()` first serves characters from `yybuffer[yybuf_pos]` if available. Only when `yybuf_pos == yybuf_size` does it call `fgetc(yyin)` and append to the buffer.
+**How yyread() works:**
 
-**Geometric growth:** capacity doubles when full, giving O(n) amortized allocation cost instead of O(n²) with per-character `realloc`.
+1. If `yybuf_pos < yybuf_size`, return the buffered character at `yybuf[yybuf_pos++]`
+2. Otherwise, call `fgetc(yyin)` to read a new character
+3. If EOF, return `EOF`
+4. Append character to buffer (growing capacity if necessary)
+5. Increment `yybuf_pos` and return the character
 
-### 4.3 Longest match with backtracking
+**Geometric growth:** when `yybuf_size >= yybuf_capa`, capacity doubles (or initializes to `YYBUF_INIT_SIZE` if zero). This gives O(n) amortized allocation cost.
 
-`yylex()` implements the POSIX longest match rule: it continues past accepting states until the DFA is blocked, then backtracks to the last accepting position.
+**Trailing context push-back:** When a token with trailing context is matched, `yybuf_pos` is set to just after the committed portion, automatically leaving trailing characters in the buffer for the next token.
 
-```txt
-loop:
-    state         = yycurrent_state
-    last_match    = -1
-    last_match_pos = match_start
-    yybuf_pos     = match_start
+### 4.3 Longest match with backtracking and candidate array
 
-    inner loop:
-        c = yyread()
-        if EOF:
-            if last_match != -1: break to dispatch
-            if yywrap() == 1: return 0
-            else: continue
-        state = yy_table[state][(unsigned char)c]
-        if state == -1: break
-        if yy_accept[state] != -1:
-            last_match     = yy_accept[state]
-            last_match_pos = yybuf_pos
+`yylex()` implements the POSIX longest match rule using a **candidate accumulation** strategy:
 
-    dispatch:
-    if last_match == -1:
-        ECHO (copy one character to stdout)
-        match_start++
-        continue outer loop
-
-    yytext = strndup(yybuffer + match_start, last_match_pos - match_start)
-    yyleng = last_match_pos - match_start
-    yybuf_pos   = last_match_pos
-    match_start = last_match_pos
-
-    switch (last_match):
-        case 0: { user action 0 } break;
-        case 1: { user action 1 } break;
-        ...
-```
-
-**Backtracking:** when the DFA blocks, `yybuf_pos` is reset to `last_match_pos`. Characters after the match remain in the buffer and will be reconsumed by the next `yylex()` call.
-
-### 4.4 yytext lifetime
-
-`yytext` is a `char*` pointing to a `strndup` copy of the matched token. It is valid until the next call to `yylex()`, which frees it at the top of its body:
+**Scan Phase:**
+The DFA is driven forward, reading characters until it blocks (no transition). During the scan, every time an accepting state is encountered, all matching rules for that state are stored as **candidates** in an array `yycandidates[]`.
 
 ```c
-int yylex(void) {
-    free(yytext);
-    yytext = NULL;
-    if (!yyinitialized) {
-        BEGIN(INITIAL);
-        yyinitialized = 1;
-    }
-    /* ... */
+typedef struct {
+    int rule_id;
+    size_t match_end;     // absolute position just past the match
+    int trailing_len;     // -1 if no trailing context
+} YYCandidate;
+
+static YYCandidate yycandidates[YYCAND_MAX];
+static int yyncandidates;  // number of collected candidates
+```
+
+Rules are pushed into the array in **reverse priority order** (lowest index first), so after collection, the highest-priority matching rule ends up at the top (highest index) of the array.
+
+**Dispatch Phase:**
+After the DFA blocks, the candidates are examined from top to bottom (highest priority first):
+
+- For each candidate, `committed_len = match_end - trailing_len` (or full match if no trailing)
+- `yytext` and `yyleng` are set to the committed portion
+- `yybuf_pos` is set to just after the committed portion, effectively pushing the trailing characters back into the input
+- The rule action is executed; if it contains `REJECT`, the loop continues to the next candidate
+
+```txt
+Scan phase:
+  state = DFA entry
+  yyncandidates = 0
+  loop:
+    c = yyread()
+    if EOF or state = -1: break
+    state = yytable[state][c]
+    if state is accepting:
+        for each rule in yyaccept_data[yyaccept_offset[state]]..+yyaccept_count[state]:
+            push {rule_id, yybuf_pos, trailing_len} onto yycandidates[] (reverse priority order)
+
+Dispatch phase:
+  if yyncandidates == 0:
+      ECHO one character
+      continue outer loop
+  for ci = yyncandidates - 1 down to 0:  // iterate from top (highest priority)
+      candidate = yycandidates[ci]
+      committed_len = (candidate.trailing_len >= 0) ? 
+          (candidate.match_end - match_start - candidate.trailing_len) : 
+          (candidate.match_end - match_start)
+      yy_assign_yytext(match_start, committed_len)
+      yybuf_pos = match_start + committed_len  // push back trailing chars
+      switch (candidate.rule_id):
+          case 0: { user action 0 } break;
+          case 1: { user action 1 } break;
+          ...
+      if action did not REJECT: break
+```
+
+This approach naturally supports backtracking without explicit state management: trailing characters remain in the buffer and will be reconsumed by the next token match.
+
+### 4.4 Initialization and BOL state management
+
+At the start of `yylex()`, the scanner initializes:
+
+```c
+static int initialized = 0;
+if (!initialized) {
+    if (!yyin) yyin = stdin;
+    if (!yyout) yyout = stdout;
+    BEGIN(INITIAL);
+    initialized = 1;
 }
 ```
 
-This bootstrap is required because DFA state `0` is not guaranteed to be the `INITIAL` entry state when multiple start conditions are compiled.
+This ensures `yycurrent_state` is explicitly set, even though multiple start conditions may exist. The `yystart_states[]` array includes DFA entries for all conditions and their BOL variants.
 
-This matches the POSIX specification: callers that need to retain the value across calls must `strdup` it themselves.
+**BOL handling:** after executing a rule action, the scanner updates `yy_at_bol`:
 
-### 4.5 Trailing Context Runtime Handling (`r/s`)
+```c
+yy_at_bol = (yyleng > 0 && yytext[yyleng - 1] == '\n');
+```
+
+At the start of the next token scan, the DFA entry is chosen based on this flag:
+
+```c
+int state = yy_at_bol
+    ? yystart_states[yycurrent_state + YYNB_CONDITIONS]  // BOL variant
+    : yystart_states[yycurrent_state];                   // normal variant
+```
+
+When `yy_at_bol` is true, the scanner uses the BOL-specific DFA entry (offset by `YYNB_CONDITIONS`) which routes to rules marked with `^` anchor. After consuming a non-newline character, `yy_at_bol` becomes false, switching to normal rules on the next token.
+
+### 4.5 yytext and yyleng management
+
+**yytext** is allocated based on the `%pointer` or `%array` mode:
+
+- **YYPOINTER_MODE** (`%pointer`, default): `yytext` is a `char*` pointing to heap-allocated memory. On each `yylex()` call, the old pointer is freed and replaced with a new allocation.
+- **YYARRAY_MODE** (`%array`): `yytext` is a fixed buffer of size `YYLMAX`. No allocation occurs; characters are copied into it.
+
+**yyleng** stores the length of the matched token (after trailing-context trimming if applicable).
+
+Lifetime rules:
+
+- `yytext` is valid until the next `yylex()` call (it is freed/overwritten)
+- Callers needing persistent text must `strdup()` before the next call
+- The `yymore()` macro allows appending the next match to the current `yytext` by setting the `yymore_flag`
+
+### 4.6 Trailing Context Runtime Handling (`r/s`)
 
 For rules with trailing context, the automata side matches `r` followed by `s` as one DFA path. At dispatch time, generated code trims the matched suffix `s` from `yytext` and rewinds the input cursor so the trailing part can be rescanned by subsequent rules.
 
-Generated switch logic (per rule):
+When a candidate is selected for dispatch:
 
 ```c
-case N:
-    yyless(yyleng - TRAILING_LEN);
-    { user action }
-    break;
+size_t full_len = cand->match_end - match_start;
+size_t committed_len = (cand->trailing_len >= 0)
+    ? full_len - (size_t)cand->trailing_len
+    : full_len;
+yy_assign_yytext(match_start, committed_len);
+yybuf_pos = match_start + committed_len;  // push back trailing chars
 ```
 
-`TRAILING_LEN` comes from `Rule::trailing_length_`, computed during lex file parsing.
+**How it works:**
 
-The runtime macro in the template updates all relevant cursors consistently:
+- `cand->match_end` is the position just past the full match (pattern + trailing)
+- `cand->trailing_len` is from `yyaccept_data[]` (set to -1 if no trailing)
+- `committed_len = full_len - trailing_len` (or full match if trailing_len == -1)
+- `yytext` and `yyleng` are set to the committed portion
+- `yybuf_pos` is moved back so the trailing characters remain unconsumed
 
-- `yyleng` becomes `yyleng - TRAILING_LEN`
-- `yytext` is truncated at the new length
-- `yybuf_pos` and `match_start` are moved back so trailing characters remain unread for the next match
-
-This reproduces lex trailing-context behavior for fixed-length trailing expressions.
+This reproduces lex trailing-context behavior for fixed-length trailing expressions. The runtime does not call `yyless()` explicitly; instead, it manages buffer positions directly.
 
 ---
 
@@ -227,14 +315,11 @@ This reproduces lex trailing-context behavior for fixed-length trailing expressi
 | - | - | - |
 | `yyin` | `FILE*` | Input stream (default: `stdin` via libl) |
 | `yyout` | `FILE*` | Output stream (default: `stdout` via libl) |
-| `yytext` | `char*` | Pointer to the last matched token |
+| `yytext` | `char*` or `char[]` | Pointer/array containing the last matched token |
 | `yyleng` | `size_t` | Length of the last matched token |
-| `yybuffer` | `char*` | Internal input buffer |
-| `yycurrent_state` | `int` | Current DFA entry state selected by `BEGIN()` |
-
-For trailing-context rules, `yyless()` mutates `yyleng`, `yytext`, and input cursors before action execution.
-
-`yyin` and `yyout` are initialized by the `libl` runtime, not in `lex.yy.c` itself.
+| `yybuf` | `char*` | Internal input buffer for lookahead |
+| `yycurrent_state` | `int` | Current start condition state (set by `BEGIN()`) |
+| `yy_at_bol` | `int` | Flag indicating beginning-of-line (for BOL anchor rules) |
 
 ---
 
@@ -243,16 +328,24 @@ For trailing-context rules, `yyless()` mutates `yyleng`, `yytext`, and input cur
 ```cpp
 class Codegen {
 public:
-    void generate(const DFA& dfa, const LexFile& lexfile, const std::string& path);
+    void generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostream& out);
 
 private:
-    std::ofstream out_;
-
-    void write_prologue(const LexFile& lexfile);   // verbatim_top_
-    void write_tables(const DFA& dfa);             // start metadata + yy_table + yy_accept
-    void write_yylex(const DFA& dfa, const LexFile& lexfile); // template substitution
-    void write_epilogue(const LexFile& lexfile);   // verbatim_bottom_
+    void write_prologue(const lexer_file::LexFile& lexfile, std::string& tmpl);
+    void write_tables(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::string& tmpl);
+    void write_yylex(const lexer_file::LexFile& lexfile, std::string& tmpl);
+    void write_epilogue(const lexer_file::LexFile& lexfile, std::string& tmpl);
 };
 ```
 
-`out_` is an `ofstream` member opened in `generate()` and shared across all private methods. It closes automatically at end of scope.
+**Generation flow:**
+
+1. Load embedded template `yylex_template.c` as a mutable string
+2. Call each `write_*()` function in order to substitute markers:
+   - `@@PROLOGUE@@` → verbatim_top_
+   - `@@TABLES@@` → all DFA tables and start condition defines
+   - `@@VERBATIM_RULES@@` → indented verbatim lines from section 2
+   - `@@RULES@@` → switch dispatch cases
+   - `@@EPILOGUE@@` → verbatim_bottom_
+   - `@@YYTEXT_MODE@@` → `YYARRAY_MODE` or `YYPOINTER_MODE`
+3. Write the final substituted template to the output stream

@@ -17,7 +17,7 @@ public:
 	 * @brief Generate the full scanner source file.
 	 * @param dfa Deterministic automaton used for runtime transitions.
 	 * @param lexfile Parsed lexer file sections and rule actions.
-	 * @param out Output path of the generated C file.
+	 * @param out Output stream for the generated C code.
 	 */
 	void	generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostream& out);
 

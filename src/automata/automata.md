@@ -56,14 +56,15 @@ struct NFA {
 ```cpp
 struct DFA {
     int initial_state_;
-    std::unordered_map<int, int> final_states_; // dfa state -> selected rule index
+    std::unordered_map<int, std::vector<int>> final_states_; // dfa state -> list of rule indices (sorted by priority)
     std::vector<std::unordered_map<char, int>> transitions_;
     std::map<std::string, int> start_states_;   // condition name -> dfa entry state
 };
 ```
 
 - `initial_state_` is the DFA state used by `INITIAL`.
-- `start_states_` is used by generated `BEGIN(X)` support.
+- `final_states_` stores a **list of matching rule indices** for each accepting state, sorted in ascending order (index 0 = highest priority).
+- `start_states_` contains entries for each condition, including BOL variants (e.g., `INITIAL`, `COMMENT`, `COMMENT_BOL`). Used by generated `BEGIN(X)` support.
 
 ---
 
@@ -78,6 +79,24 @@ Selection rules:
 - A rule without explicit condition is not injected into exclusive `%x` conditions.
 
 This matches expected lex behavior for inclusive/exclusive states.
+
+---
+
+## 3.1 Beginning-of-Line (BOL) Anchor Handling
+
+Rules with `^` anchor are marked as BOL-only. For each start condition, two NFA entry groups are created:
+
+- **Normal group**: rules without `^` anchor (active after any character is matched)
+- **BOL group**: rules with `^` anchor (active at start of buffer or after newline)
+
+In the merged NFA, each condition gets two entry points:
+
+- `CONDITION` - entry after normal matching
+- `CONDITION_BOL` - entry for BOL-anchored rules
+
+The generated scanner initializes with `INITIAL_BOL` and switches to `INITIAL` after consuming the first character. After matching `\n`, the scanner switches back to the BOL variant.
+
+The `dfa.start_states_` map includes both variants, and the runtime manages the transition between them.
 
 ---
 
@@ -108,10 +127,14 @@ The map is `condition -> entry_state_in_merged_nfa`.
 
 - each distinct subset gets one DFA id
 - if two conditions map to the same closure, they reuse the same DFA id
-- `dfa.start_states_[name]` records the DFA id for each condition
+- `dfa.start_states_[name]` records the DFA id for each condition (including BOL variants)
 - `dfa.initial_state_ = dfa.start_states_["INITIAL"]`
 
-`final_states` selection is unchanged: minimum rule index wins when a subset contains multiple accepting NFA states.
+**Accepting state handling**: when a subset contains multiple NFA final states (each tagged with a rule index):
+
+- All matching rule indices are collected and **stored in ascending order** (lowest index = highest priority)
+- This sorted list is saved in `dfa.final_states_[dfa_state_id]`
+- The runtime uses this list to select the highest-priority rule when dispatching actions
 
 ---
 
@@ -128,11 +151,12 @@ This keeps scanner runtime logic simple (single table lookup path).
 
 ## 7. Practical Consequences
 
-- One DFA now supports normal scanning and start-condition mode switching.
-- Rule order remains semantic; the first rule wins on conflicts.
+- One DFA now supports normal scanning, BOL-anchored rules, and start-condition mode switching.
+- Rule order remains semantic; the first rule wins on conflicts (stored in ascending index order in `final_states_`).
 - Inclusive `%s` conditions inherit unqualified rules.
 - Exclusive `%x` conditions only activate explicitly qualified rules.
 - Generated code can switch condition with `BEGIN(NAME)` and continue from the right DFA entry.
+- BOL transitions are managed by the generated scanner (switches to `CONDITION_BOL` after matching newline).
 
 ---
 
@@ -140,6 +164,7 @@ This keeps scanner runtime logic simple (single table lookup path).
 
 - Subset bitmasks use `uint64_t`, so the implementation assumes up to 64 NFA states in one merged construction.
 - `INITIAL` is always injected in condition handling, even if not explicitly declared.
+- Each condition gets a BOL variant (`CONDITION_BOL`) for `^`-anchored rules, automatically managed by the runtime.
 
 ---
 

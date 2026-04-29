@@ -53,6 +53,8 @@ Top-level parser output.
 | `rules_` | `vector<Rule>` | Lexer rules in declaration order |
 | `verbatim_rules_` | `vector<string>` | Indented verbatim lines from section 2 |
 | `verbatim_bottom_` | `string` | Entire section 3 |
+| `conditions_` | `map<string, bool>` | Declared start conditions: name → `true` for `%x` (exclusive), `false` for `%s` (inclusive) |
+| `array_mode_` | `bool` | `true` if `%array` mode is used (fixed `yytext` buffer); `false` for `%pointer` mode (heap-allocated `yytext`) |
 
 Macros are stored as `vector` to preserve declaration order, which is semantically significant: a macro may only reference macros declared before it.
 
@@ -65,13 +67,8 @@ Macros are stored as `vector` to preserve declaration order, which is semantical
 | `trailing_` | `string` | Trailing-context regex (for `r/s`), fully macro-expanded |
 | `action_` | `string` | The C action block, including surrounding braces |
 | `trailing_length_` | `int` | Fixed length of `trailing_` used by codegen (`-1` when absent) |
-| `is_pipe_` | `bool` | True is the original action was a pipe |
-
-`LexFile` also stores declared start conditions:
-
-| Field | Type | Description |
-| - | - | - |
-| `conditions_` | `map<string, bool>` | Condition name -> `true` for `%x` (exclusive), `false` for `%s` (inclusive) |
+| `is_pipe_` | `bool` | `true` if the original action was a pipe (`\|`) |
+| `is_bol_` | `bool` | `true` if the rule pattern begins with `^` anchor |
 
 ## Architecture
 
