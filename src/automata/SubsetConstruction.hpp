@@ -5,10 +5,10 @@
 
 #pragma once
 
+#include <cstddef>
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
-#include <cstdint>
 #include <map>
 #include <string>
 
@@ -22,6 +22,22 @@ namespace automata {
  */
 class SubsetConstruction {
 public:
+	/**
+	 * @brief Canonical representation of an NFA state subset.
+	 */
+	struct StateSet {
+		std::vector<int> states_;
+
+		bool operator==(const StateSet& other) const noexcept { return states_ == other.states_; }
+	};
+
+	/**
+	 * @brief Hash for StateSet.
+	 */
+	struct StateSetHash {
+		std::size_t operator()(const StateSet& subset) const noexcept;
+	};
+
 	/**
 	 * @brief Build a DFA from an NFA using subset construction.
 	 * @param nfa Source NFA.
@@ -37,24 +53,24 @@ public:
 	void	complete(DFA& dfa, const NFA& nfa);
 
 private:
-	/** @brief Mapping from NFA-state bitmask to DFA state id. */
-	std::unordered_map<uint64_t, int>	seen_;
+	/** @brief Mapping from NFA-state subset to DFA state id. */
+	std::unordered_map<StateSet, int, StateSetHash>	seen_;
 
 	/**
 	 * @brief Compute epsilon-closure for a set of NFA states.
 	 * @param nfa Source NFA.
-	 * @param states Bitmask of active NFA states.
-	 * @return Bitmask of states reachable through epsilon transitions.
+	 * @param states Active NFA states.
+	 * @return States reachable through epsilon transitions.
 	 */
-	uint64_t				epsilon_closure(const NFA& nfa, uint64_t states);
+	StateSet			epsilon_closure(const NFA& nfa, const StateSet& states);
 	/**
 	 * @brief Apply one symbol transition step on a set of NFA states.
 	 * @param nfa Source NFA.
-	 * @param states Bitmask of active NFA states.
+	 * @param states Active NFA states.
 	 * @param symbol Input symbol.
-	 * @return Bitmask of destination states.
+	 * @return Destination states.
 	 */
-	uint64_t				delta(const NFA& nfa, uint64_t states, char symbol);
+	StateSet			delta(const NFA& nfa, const StateSet& states, char symbol);
 	/**
 	 * @brief Compute DFA accepting states from discovered subsets.
 	 * @param nfa Source NFA.

@@ -11,6 +11,14 @@
 
 using namespace automata; using namespace std;
 
+size_t SubsetConstruction::StateSetHash::operator()(const StateSet& subset) const noexcept {
+	size_t hash = 0;
+	for (int state : subset.states_) {
+		hash ^= std::hash<int>{}(state) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+	}
+	return hash;
+}
+
 /**
  * @brief Build a DFA from an NFA using subset construction.
  * @param nfa Source NFA.
@@ -18,12 +26,12 @@ using namespace automata; using namespace std;
  */
 DFA SubsetConstruction::build(const NFA& nfa, const map<string, int>& entry_points) {
 	DFA				dfa;
-	stack<uint64_t>	worklist;
+	stack<StateSet>	worklist;
 	int				id = 0;
 
 	for (auto& [cond_name, nfa_entry] : entry_points) {
 		// Seed one DFA subset per condition entry and reuse ids when closures are identical.
-		uint64_t	S	= epsilon_closure(nfa, 1ULL << nfa_entry);
+		StateSet	S	= epsilon_closure(nfa, StateSet{{nfa_entry}});
 		if (seen_.find(S) == seen_.end()) {
 			seen_.insert({S, id});
 			worklist.push(S);
@@ -35,11 +43,11 @@ DFA SubsetConstruction::build(const NFA& nfa, const map<string, int>& entry_poin
 	dfa.initial_state_	= dfa.start_states_.at("INITIAL");
 
 	while (!worklist.empty()) {
-		uint64_t	S	= worklist.top();
+		StateSet	S	= worklist.top();
 		worklist.pop();
 		for (char sym : nfa.alphabet_) {
-			uint64_t	T	= epsilon_closure(nfa, delta(nfa, S, sym));
-			if (T != 0) {
+			StateSet	T	= epsilon_closure(nfa, delta(nfa, S, sym));
+			if (!T.states_.empty()) {
 				if (seen_.find(T) == seen_.end()) {
 					seen_.insert({T, id++});
 					worklist.push(T);
@@ -94,27 +102,30 @@ void SubsetConstruction::complete(DFA& dfa, const NFA& nfa) {
  * @param states Input state bitmask.
  * @return Closure bitmask.
  */
-uint64_t SubsetConstruction::epsilon_closure(const NFA& nfa, uint64_t states) {
-	uint64_t	res = 0;
+SubsetConstruction::StateSet SubsetConstruction::epsilon_closure(const NFA& nfa, const StateSet& states) {
+	StateSet	res;
 	stack<int>	worklist;
+	vector<char>	visited(nfa.transitions_.size(), 0);
 
-	uint64_t tmp = states;
-	while (tmp) {
-		int state = __builtin_ctzll(tmp);
-		worklist.push(state);
-		tmp &= tmp - 1;
+	for (int state : states.states_) {
+		if (state >= 0 && static_cast<size_t>(state) < visited.size() && !visited[state])
+			worklist.push(state);
 	}
 
 	while (!worklist.empty()) {
 		int x = worklist.top();
 		worklist.pop();
-		res |= (1ULL << x);
-		for (auto e : nfa.epsilon_transitions_[x]) {
-			if (!(res & (1ULL << e)))
+		if (x < 0 || static_cast<size_t>(x) >= visited.size() || visited[x])
+			continue;
+		visited[x] = 1;
+		res.states_.push_back(x);
+		for (int e : nfa.epsilon_transitions_[x]) {
+			if (e >= 0 && static_cast<size_t>(e) < visited.size() && !visited[e])
 				worklist.push(e);
 		}
 	}
 
+	sort(res.states_.begin(), res.states_.end());
 	return res;
 }
 
@@ -125,20 +136,25 @@ uint64_t SubsetConstruction::epsilon_closure(const NFA& nfa, uint64_t states) {
  * @param symbol Transition symbol.
  * @return Destination states bitmask.
  */
-uint64_t SubsetConstruction::delta(const NFA& nfa, uint64_t states, char symbol) {
-	uint64_t	res = 0;
-	uint64_t	tmp = states;
+SubsetConstruction::StateSet SubsetConstruction::delta(const NFA& nfa, const StateSet& states, char symbol) {
+	StateSet	res;
+	vector<char>	visited(nfa.transitions_.size(), 0);
 
-	while (tmp) {
-		int state = __builtin_ctzll(tmp);
+	for (int state : states.states_) {
+		if (state < 0 || static_cast<size_t>(state) >= nfa.transitions_.size())
+			continue;
 		auto it = nfa.transitions_[state].find(symbol);
-		if (it != nfa.transitions_[state].end()) {
-			for (auto i : it->second)
-				res |= (1ULL << i);
+		if (it == nfa.transitions_[state].end())
+			continue;
+		for (int dest : it->second) {
+			if (dest >= 0 && static_cast<size_t>(dest) < visited.size() && !visited[dest]) {
+				visited[dest] = 1;
+				res.states_.push_back(dest);
+			}
 		}
-		tmp &= tmp - 1;
 	}
 
+	sort(res.states_.begin(), res.states_.end());
 	return res;
 }
 
@@ -156,7 +172,7 @@ unordered_map<int, vector <int>> SubsetConstruction::final_states(const NFA& nfa
 	for (auto& [mask, dfa_id] : seen_) {
 		vector<int> rules;
 		for (auto& [final_bit, rule_index] : nfa.final_states_) {
-			if (mask & (1ULL << final_bit)) {
+			if (binary_search(mask.states_.begin(), mask.states_.end(), final_bit)) {
 				rules.push_back(rule_index);
 			}
 		}

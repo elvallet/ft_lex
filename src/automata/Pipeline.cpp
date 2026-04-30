@@ -8,6 +8,20 @@
 
 using namespace automata; using namespace std;
 
+namespace {
+
+bool is_trivially_empty_action(const std::string& action)
+{
+	std::string compact;
+	for (char c : action) {
+		if (!std::isspace(static_cast<unsigned char>(c)))
+			compact.push_back(c);
+	}
+	return compact == "{}";
+}
+
+} // namespace
+
 /**
  * @brief Compile all rules, merge NFAs, build DFA, then complete transitions.
  * @param rules Ordered lexer rules (priority = lowest index).
@@ -40,7 +54,8 @@ DFA ParsingPipeline::execute(
 			auto&	rule_conds		= rules[i].conditions_;
 			bool	rule_has_cond	= find(rule_conds.begin(), rule_conds.end(), cond_name) != rule_conds.end();
 			bool	is_unqualified	= rule_conds.size() == 1 && rule_conds[0] == "INITIAL";
-			bool	applies			= rule_has_cond || (!is_exclusive && is_unqualified && cond_name != "INITIAL");
+			bool	inherits_global	= is_unqualified && (!is_exclusive || is_trivially_empty_action(rules[i].action_));
+			bool	applies			= rule_has_cond || inherits_global;
 
 			if (!applies)
 				continue;
