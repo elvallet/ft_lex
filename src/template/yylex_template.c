@@ -16,6 +16,7 @@
  * ----------------------------------------------------------------------- */
 #define @@YYTEXT_MODE@@
 #if defined(YYARRAY_MODE)
+#define YYLMAX			8192
 	char	yytext[YYLMAX];	/* %array: fixed buffer, no heap allocation */
 #else
 	char	*yytext = NULL;	/* %pointer (default): heap-allocated		*/
@@ -63,6 +64,8 @@ static int		yy_at_bol			= 1;
 static int		yymore_flag			= 0;
 static size_t	yymore_len			= 0;
 
+#define SINK	@@SINK@@
+
 /* -----------------------------------------------------------------------
  * Candidate: one potential match collected during the scan phase.
  *  match_end		- absolute position in yybuf just past the full match
@@ -79,14 +82,13 @@ typedef struct {
 /* YYCAND_MAX caps the total (rule x length) pairs collected by token.
  * Override with -DYYCANDMAX=N if your grammar needs more. */
 #ifndef YYCAND_MAX
-#define YYCAND_MAX 512
+#define YYCAND_MAX 15120
 #endif
 
 static YYCandidate	yycandidates[YYCAND_MAX];
 static int			yyncandidates = 0;
 
 #define YYBUF_INIT_SIZE	256
-#define YYLMAX			8192
 
 /* -----------------------------------------------------------------------
  * Public API macros
@@ -253,7 +255,7 @@ int yylex(void)
 			}
 
 			state	= yytable[state][(unsigned char)c];
-			if (state == -1)
+			if (state == -1 || state == SINK)
 				break;
 				
 			if (yyaccept_count[state] > 0) {

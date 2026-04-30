@@ -81,6 +81,7 @@ void SubsetConstruction::complete(DFA& dfa, const NFA& nfa) {
 
 	if (sink_needed) {
 		dfa.transitions_.push_back({});
+		dfa.sink_	= SINK;
 		for (char c: nfa.alphabet_) {
 			dfa.transitions_[SINK].insert({c, SINK});
 		}

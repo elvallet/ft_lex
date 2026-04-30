@@ -85,6 +85,7 @@ void Codegen::generate(const automata::DFA& dfa, const lexer_file::LexFile& lexf
 
 	std::string mode = lexfile.array_mode_ ? "YYARRAY_MODE" : "YYPOINTER_MODE";
 	replace_all(tmpl, "@@YYTEXT_MODE@@", mode);
+	replace_all(tmpl, "@@SINK@@", std::to_string(dfa.sink_));
 
 	write_prologue(lexfile, tmpl);
 	write_tables(dfa, lexfile, tmpl);

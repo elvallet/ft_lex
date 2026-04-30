@@ -28,6 +28,7 @@ struct DFA {
 	 *  Includes both normal conditions (INITIAL, COMMENT, etc.) and BOL variants (INITIAL_BOL, COMMENT_BOL, etc.).
 	 */
 	std::map<std::string, int>					start_states_;
+	int											sink_;
 };
 
 } // namespace automata
