@@ -1,13 +1,12 @@
 #include <stdio.h>
 
-int yylex(void);
+extern int yylex(void);
+extern void yylex_destroy(void);
 extern FILE	*yyin;
 extern FILE	*yyout;
 
 __attribute__((weak)) int main(int argc, char **argv)
 {
-	(void)argc;
-	(void)argv;
 	if (argc > 1) {
 		yyin = fopen(argv[1], "r");
 		if (!yyin) {
@@ -18,5 +17,10 @@ __attribute__((weak)) int main(int argc, char **argv)
 		yyin = stdin;
 	}
 	yyout = stdout;
-	yylex();
+	while (yylex() != 0);
+	if (yyin != stdin) {
+		fclose(yyin);
+	}
+	yylex_destroy();
+	return 0;
 }

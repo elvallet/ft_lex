@@ -167,6 +167,28 @@ static void yy_assign_yytext(size_t start, size_t len)
 }
 
 /* -----------------------------------------------------------------------
+ * yylex_destroy - free memory
+ * ----------------------------------------------------------------------- */
+void yylex_destroy(void)
+{
+	if (yybuf)
+	{
+		free(yybuf);
+		yybuf		= NULL;
+		yybuf_size	= 0;
+		yybuf_capa	= 0;
+		yybuf_pos	= 0;
+	}
+#if !defined(YYARRAY_MODE)
+	if (yytext)
+	{
+		free(yytext);
+		yytext	= NULL;
+	}
+#endif
+}
+
+/* -----------------------------------------------------------------------
  * yylex - main scanner entry point.
  * ----------------------------------------------------------------------- */
 int yylex(void)
