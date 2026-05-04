@@ -125,6 +125,17 @@ The map is `condition -> entry_state_in_merged_nfa`.
 
 `SubsetConstruction::build(const NFA&, const std::map<std::string, int>& entry_points)` seeds one epsilon-closure subset per condition entry point.
 
+Internally, a DFA state is identified by a `StateSet`:
+
+- `StateSet` stores the active NFA state ids in a sorted `std::vector<int>`
+- `epsilon_closure()` and `delta()` always normalize the result before returning it
+- `StateSet::operator==` compares the normalized vectors directly
+- `StateSetHash` hashes the same normalized vector so `seen_` can deduplicate identical subsets
+
+That means two different paths that reach the same NFA subset will always map to the same DFA state id.
+
+Build-time behavior:
+
 - each distinct subset gets one DFA id
 - if two conditions map to the same closure, they reuse the same DFA id
 - `dfa.start_states_[name]` records the DFA id for each condition (including BOL variants)
@@ -162,7 +173,7 @@ This keeps scanner runtime logic simple (single table lookup path).
 
 ## 8. Notes and Limits
 
-- Subset bitmasks use `uint64_t`, so the implementation assumes up to 64 NFA states in one merged construction.
+- Subset identity is based on the canonical `StateSet` vector, not on a fixed-size bitmask, so the construction is not tied to a 64-state limit.
 - `INITIAL` is always injected in condition handling, even if not explicitly declared.
 - Each condition gets a BOL variant (`CONDITION_BOL`) for `^`-anchored rules, automatically managed by the runtime.
 

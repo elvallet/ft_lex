@@ -12,6 +12,7 @@
 using namespace automata; using namespace std;
 
 size_t SubsetConstruction::StateSetHash::operator()(const StateSet& subset) const noexcept {
+	// Hash the ordered subset representation so identical subsets reuse the same DFA id.
 	size_t hash = 0;
 	for (int state : subset.states_) {
 		hash ^= std::hash<int>{}(state) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
@@ -125,6 +126,7 @@ SubsetConstruction::StateSet SubsetConstruction::epsilon_closure(const NFA& nfa,
 		}
 	}
 
+	// Keep the subset canonical before it is used as a key in seen_.
 	sort(res.states_.begin(), res.states_.end());
 	return res;
 }
@@ -154,6 +156,7 @@ SubsetConstruction::StateSet SubsetConstruction::delta(const NFA& nfa, const Sta
 		}
 	}
 
+	// Keep the subset canonical before it is used as a key in seen_.
 	sort(res.states_.begin(), res.states_.end());
 	return res;
 }

@@ -23,7 +23,9 @@ namespace automata {
 class SubsetConstruction {
 public:
 	/**
-	 * @brief Canonical representation of an NFA state subset.
+	 * @brief Canonical ordered representation of an NFA state subset.
+	 *
+	 * The vector is kept sorted and deduplicated so equality and hashing stay stable.
 	 */
 	struct StateSet {
 		std::vector<int> states_;
@@ -32,7 +34,7 @@ public:
 	};
 
 	/**
-	 * @brief Hash for StateSet.
+	 * @brief Hash for the canonical StateSet representation.
 	 */
 	struct StateSetHash {
 		std::size_t operator()(const StateSet& subset) const noexcept;
