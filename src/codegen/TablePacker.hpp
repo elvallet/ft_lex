@@ -36,14 +36,14 @@ public:
 	 * @param transitions DFA transition table (state -> char -> next_state).
 	 * @return PackedTables ready for codegen serialisation
 	 */
-	PackedTables	pack(const std::vector<std::unordered_map<char, int>>& transitions);
+	PackedTables	pack(const std::vector<std::unordered_map<char, int>>& transitions, int sink_state);
 
 private:
 	/// Ordered list of (unsigned_char_value, destination) for one state.
 	using Profile = std::vector<std::pair<int, int>>;
 
 	/// Build the profile of a single state, casting chars to unsigned.
-	Profile	build_profile(const std::unordered_map<char, int>& row) const;
+	Profile	build_profile(const std::unordered_map<char, int>& row, int sink_state) const;
 
 	/// Return true if placing `profile`, starting at `offset` would collide
 	/// with an already_placed state in check_[].

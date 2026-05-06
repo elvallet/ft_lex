@@ -19,7 +19,7 @@ TablePacker::TablePacker()
 // Public entry point
 // ---------------------------------------------------------------------------
 
-PackedTables TablePacker::pack(const std::vector<std::unordered_map<char, int>>& transitions)
+PackedTables TablePacker::pack(const std::vector<std::unordered_map<char, int>>& transitions, int sink_state)
 {
 	const size_t	nb_states	= transitions.size();
 
@@ -33,11 +33,12 @@ PackedTables TablePacker::pack(const std::vector<std::unordered_map<char, int>>&
 	std::vector<Profile>	profiles;
 	profiles.reserve(nb_states);
 	for (size_t s = 0; s < nb_states; ++s)
-		profiles.push_back(build_profile(transitions[s]));
+		profiles.push_back(build_profile(transitions[s], sink_state));
 
 	// 2. Sort states by descending profile size (densest first).
 	std::vector<int> order(nb_states);
-	std::iota(order.begin(), order.end(), [&](int a, int b) {
+	std::iota(order.begin(), order.end(), 0);
+	std::sort(order.begin(), order.end(), [&](int a, int b) {
 		return profiles[a].size() > profiles[b].size();
 	});
 
@@ -64,11 +65,12 @@ PackedTables TablePacker::pack(const std::vector<std::unordered_map<char, int>>&
 // ---------------------------------------------------------------------------
 
 TablePacker::Profile
-TablePacker::build_profile(const std::unordered_map<char, int>& row) const
+TablePacker::build_profile(const std::unordered_map<char, int>& row, int sink_state) const
 {
 	Profile p;
 	p.reserve(row.size());
 	for (auto& [c, dst] : row) {
+		if (dst == sink_state) continue;
 		// Cast to unsigned char so that values are always in [0, 255].
 		p.emplace_back(static_cast<unsigned char>(c), dst);
 	}

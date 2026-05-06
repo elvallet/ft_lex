@@ -11,6 +11,7 @@ FILES		:=	automata/Parser.cpp				\
 				automata/SubsetConstruction.cpp	\
 				automata/Thompson.cpp			\
 				codegen/Codegen.cpp				\
+				codegen/TablePacker.cpp			\
 				lexer_file/LexParser.cpp		\
 				lexer_file/LineReader.cpp		\
 				lexer_file/ParseError.cpp		\

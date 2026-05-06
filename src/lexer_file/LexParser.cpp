@@ -186,11 +186,11 @@ pair<string, string> LexParser::split_pattern_action(const std::string& raw)
 				i++;
 			}
 			continue;
-		} else if (c == '[') {
+		} else if (c == '[' && !quote) {
 			bracket = true;
-		} else if (c == ']') {
+		} else if (c == ']' && !quote) {
 			bracket = false;
-		} else if (c == '"') {
+		} else if (c == '"' && !bracket) {
 			quote = !quote;
 		} else if (is_whitespace(c) && !quote && !bracket) {
 			break;
@@ -233,11 +233,11 @@ pair<string, string> LexParser::detect_trailing(const string& raw)
 				i++;
 			}
 			continue;
-		} else if (c == '[') {
+		} else if (c == '[' && !quote) {
 			bracket = true;
-		} else if (c == ']') {
+		} else if (c == ']' && !quote) {
 			bracket = false;
-		} else if (c == '"') {
+		} else if (c == '"' && !bracket) {
 			quote = !quote;
 		} else if (c == '/' && !quote && !bracket) {
 			// Unescaped '/' outside [] and "" splits pattern/trailing.

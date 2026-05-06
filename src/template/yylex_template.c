@@ -9,6 +9,8 @@
 
 @@PROLOGUE@@
 
+@@COMPRESSION@@
+
 /* -----------------------------------------------------------------------
  * yytext declaration - YYTEXT_MODE is replaced by the codegen:
  * - %pointer (default) -> "pointer"
@@ -254,7 +256,16 @@ int yylex(void)
 				continue;
 			}
 
+#if !defined(MODE_COMPRESSION)
 			state	= yytable[state][(unsigned char)c];
+#else
+			int offset	= yybase[state] + c;
+			if (yycheck[offset] == state)
+				state = yynext[offset];
+			else
+				state = -1;
+#endif
+
 			if (state == -1 || state == SINK)
 				break;
 				

@@ -1,4 +1,5 @@
 #include "Codegen.hpp"
+#include "TablePacker.hpp"
 #include "yylex_template.h"
 #include <iostream>
 #include <stdexcept>
@@ -83,7 +84,10 @@ void Codegen::generate(const automata::DFA& dfa, const lexer_file::LexFile& lexf
 		yylex_template_c_len
 	);
 
-	std::string mode = lexfile.array_mode_ ? "YYARRAY_MODE" : "YYPOINTER_MODE";
+	std::string compression	= lexfile.compression_ ? "#define MODE_COMPRESSION" : "";
+	std::string mode		= lexfile.array_mode_ ? "YYARRAY_MODE" : "YYPOINTER_MODE";
+
+	replace_all(tmpl, "@@COMPRESSION@@", compression);
 	replace_all(tmpl, "@@YYTEXT_MODE@@", mode);
 	replace_all(tmpl, "@@SINK@@", std::to_string(dfa.sink_));
 
@@ -162,20 +166,44 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 	}
 	oss << " };\n";
 
-	// ------------------------------------------------------------------------
-	// yytable[S][256] - transition table
-	// ------------------------------------------------------------------------
-	oss << "static int yytable[" << nb_states << "][256] = {\n";
-	for (size_t s = 0; s < nb_states; s++) {
-		oss << "\t{";
-		for (int c = 0; c < 256; c++) {
-			auto it = dfa.transitions_[s].find(static_cast<char>(c));
-			oss	<< (c == 0 ? " " : ", ")
-				<< (it != dfa.transitions_[s].end() ? it->second : -1);
+	if (lexfile.compression_) {
+		TablePacker	tp;
+
+		auto tables = tp.pack(dfa.transitions_, dfa.sink_);
+
+		oss << "static int yybase[] = {";
+		for (size_t i = 0; i < tables.base_.size(); i++) {
+			oss << (i == 0 ? " " : ", ") << tables.base_[i];
 		}
-		oss << " },\n";
+		oss << " };\n";
+
+		oss << "static int yycheck[] = {";
+		for (size_t i = 0; i < tables.check_.size(); i++) {
+			oss << (i == 0 ? " " : ", ") << tables.check_[i];
+		}
+		oss << " };\n";
+
+		oss << "static int yynext[] = {";
+		for (size_t i = 0; i < tables.next_.size(); i++) {
+			oss << (i == 0 ? " " : ", ") << tables.next_[i];
+		}
+		oss << " };\n";
+	} else {
+		// ------------------------------------------------------------------------
+		// yytable[S][256] - transition table
+		// ------------------------------------------------------------------------
+		oss << "static int yytable[" << nb_states << "][256] = {\n";
+		for (size_t s = 0; s < nb_states; s++) {
+			oss << "\t{";
+			for (int c = 0; c < 256; c++) {
+				auto it = dfa.transitions_[s].find(static_cast<char>(c));
+				oss	<< (c == 0 ? " " : ", ")
+					<< (it != dfa.transitions_[s].end() ? it->second : -1);
+			}
+			oss << " },\n";
+		}
+		oss << "};\n";
 	}
-	oss << "};\n";
 
 	// ------------------------------------------------------------------------
 	// yyaccept_data[] - flat array of {rule_id, trailing_len} entries.

@@ -11,7 +11,8 @@ struct Arguments
 {
 	std::string	input_file;
 	std::string	output_file;
-	bool		output_to_file = true;
+	bool		output_to_file	= true;
+	bool		compression		= false;
 };
 
 static void print_usage(const std::string &prog_name)
@@ -19,6 +20,7 @@ static void print_usage(const std::string &prog_name)
 	std::cerr << "Usage: " << prog_name << " <input.l> [-nt] [output.c]" << std::endl;
 	std::cerr << "  -n : (unused)" << std::endl;
 	std::cerr << "  -t : output to stdout instead of file" << std::endl;
+	std::cerr << "	-c : activate compression mode" << std::endl;
 }
 
 static Arguments parse_arguments(int argc, char **argv)
@@ -39,6 +41,8 @@ static Arguments parse_arguments(int argc, char **argv)
 			continue;
 		} else if (arg == "-t") {
 			args.output_to_file = false;
+		} else if (arg == "-c") {
+			args.compression	= true;
 		} else if (arg[0] == '-') {
 			print_usage(argv[0]);
 			throw std::invalid_argument("Unknown flag: " + arg);
@@ -76,6 +80,9 @@ int main(int argc, char **argv)
 			ofs.open(args.output_file.c_str(), std::ios::out | std::ios::trunc);
 		else
 			ofs.open("/dev/stdout", std::ios::out);
+
+		if (args.compression)
+			lex_file.compression_	= true;
 
 		if (!ofs.is_open())
 			throw std::runtime_error("Failed to open output stream");
