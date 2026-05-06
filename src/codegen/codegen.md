@@ -125,6 +125,51 @@ static int yyaccept_count[NB_STATES] = { 1, 2, 1, 0, ... };
 
 All tables require that DFA state IDs are contiguous integers from `0` to `N-1`. This is guaranteed by the subset construction algorithm, which assigns IDs sequentially as new states are discovered. No remapping is needed.
 
+### 3.5 Compressed transition tables (optional compression mode)
+
+When compression is enabled (via `-c` flag), the dense `yytable[state][256]` is replaced with a compressed representation using base/check/next indexing:
+
+```c
+static int yybase[] = { 0, 256, 512, ... };   // base offset per state
+static int yycheck[] = { 0, 1, -1, 1, 2, -1, ... }; // ownership validation
+static int yynext[] = { 5, 7, -1, 3, 9, ... }; // transition destinations
+```
+
+**Lookup algorithm:**
+
+```c
+int offset = yybase[state] + (unsigned char)c;
+if (offset >= 0 && offset < yycheck_size && yycheck[offset] == state)
+    next_state = yynext[offset];
+else
+    next_state = -1;  // invalid transition
+```
+
+**Algorithm (TablePacker):**
+
+The packing algorithm is a greedy offset-search strategy:
+
+1. States are sorted by transition density (densest first) to improve allocation locality
+2. For each state, compute its "profile" - the list of (char, next_state) pairs, with chars cast to unsigned
+3. Find the lowest offset in the next[]/check[] arrays where this profile can be placed without collisions
+4. At each offset, check if `check[base[s] + c] == s`, ensuring unique ownership
+5. Place the state transitions and record `base[s]` for later lookup
+6. Grow arrays as needed to accommodate new states
+
+Memory layout example (for 3 states with some transitions):
+
+```txt
+offset:  0   256 512 768
+yybase: [0, 256, 512]  // state 0→0, state 1→256, state 2→512
+
+yycheck: [0, 1, -1, 1, 2, -1, ...]  // marks owner of each slot
+yynext:  [5, 7, -1, 3, 9, -1, ...]  // destination states
+
+state 0, char 'a' (97): check[0 + 97] = 0 ✓ → next_state = yynext[0 + 97] = 5
+state 0, char 'x' (120): check[0 + 120] = -1 ✗ → invalid
+state 1, char 'b' (98): check[256 + 98] = 1 ✓ → next_state = yynext[256 + 98] = 3
+```
+
 ---
 
 ## 4. The yylex() template
@@ -136,8 +181,10 @@ Rather than generating `yylex()` character by character, the body is stored in a
 | Marker | Replaced with |
 | - | - |
 | `@@PROLOGUE@@` | User verbatim C code from section 1 (`LexFile::verbatim_top_`) |
+| `@@COMPRESSION@@` | `#define MODE_COMPRESSION` if compression is enabled, empty otherwise |
 | `@@YYTEXT_MODE@@` | `YYARRAY_MODE` or `YYPOINTER_MODE` depending on `LexFile::array_mode_` |
-| `@@TABLES@@` | All DFA tables: condition defines, `yytable`, `yyaccept_*` |
+| `@@SINK@@` | The sink state id (used to detect invalid transitions in non-compressed mode) |
+| `@@TABLES@@` | All DFA tables: condition defines, transition tables (compressed or dense), `yyaccept_*` |
 | `@@VERBATIM_RULES@@` | Indented verbatim code lines from section 2 |
 | `@@RULES@@` | Generated `case N: { action } break;` blocks for each rule |
 | `@@EPILOGUE@@` | User verbatim C code from section 3 (`LexFile::verbatim_bottom_`) |
@@ -175,7 +222,52 @@ State variables maintained separately:
 
 **Trailing context push-back:** When a token with trailing context is matched, `yybuf_pos` is set to just after the committed portion, automatically leaving trailing characters in the buffer for the next token.
 
-### 4.3 Longest match with backtracking and candidate array
+### 4.3 Transition table lookup
+
+The DFA state transition during the scan phase uses different lookup strategies depending on whether compression is enabled:
+
+**Without compression (standard mode):**
+
+```c
+state = yytable[state][(unsigned char)c];
+```
+
+Simple direct 2D array indexing. Cost: one array access.
+
+**With compression (enabled via `-c` flag):**
+
+```c
+#if defined(MODE_COMPRESSION)
+    int offset = yybase[state] + (unsigned char)c;
+    if (yycheck[offset] == state)
+        state = yynext[offset];
+    else
+        state = -1;
+#else
+    state = yytable[state][(unsigned char)c];
+#endif
+```
+
+The compressed lookup performs:
+
+1. Calculate offset: `base[state] + char` (char as unsigned 0-255)
+2. Check ownership: `check[offset] == state`
+3. If valid, get destination: `next[offset]`
+4. Otherwise, no transition exists: return -1
+
+This is slightly slower per lookup (~25% overhead) but reduces memory footprint dramatically.
+
+**Invalid transition handling:**
+
+Both modes handle invalid transitions identically:
+
+- In compressed mode, ownership check fails → -1
+- In standard mode, dense table stores -1 → -1
+- Runtime treats -1 as "state blocked", triggering backtracking to last candidate
+
+---
+
+### 4.4 Longest match with backtracking and candidate array
 
 `yylex()` implements the POSIX longest match rule using a **candidate accumulation** strategy:
 
@@ -235,7 +327,7 @@ Dispatch phase:
 
 This approach naturally supports backtracking without explicit state management: trailing characters remain in the buffer and will be reconsumed by the next token match.
 
-### 4.4 Initialization and BOL state management
+### 4.5 Initialization and BOL state management
 
 At the start of `yylex()`, the scanner initializes:
 
@@ -267,7 +359,7 @@ int state = yy_at_bol
 
 When `yy_at_bol` is true, the scanner uses the BOL-specific DFA entry (offset by `YYNB_CONDITIONS`) which routes to rules marked with `^` anchor. After consuming a non-newline character, `yy_at_bol` becomes false, switching to normal rules on the next token.
 
-### 4.5 yytext and yyleng management
+### 4.6 yytext and yyleng management
 
 **yytext** is allocated based on the `%pointer` or `%array` mode:
 
@@ -282,7 +374,7 @@ Lifetime rules:
 - Callers needing persistent text must `strdup()` before the next call
 - The `yymore()` macro allows appending the next match to the current `yytext` by setting the `yymore_flag`
 
-### 4.6 Trailing Context Runtime Handling (`r/s`)
+### 4.7 Trailing Context Runtime Handling (`r/s`)
 
 For rules with trailing context, the automata side matches `r` followed by `s` as one DFA path. At dispatch time, generated code trims the matched suffix `s` from `yytext` and rewinds the input cursor so the trailing part can be rescanned by subsequent rules.
 
@@ -343,9 +435,69 @@ private:
 1. Load embedded template `yylex_template.c` as a mutable string
 2. Call each `write_*()` function in order to substitute markers:
    - `@@PROLOGUE@@` → verbatim_top_
+   - `@@COMPRESSION@@` → compression mode define (if enabled)
+   - `@@YYTEXT_MODE@@` → `YYARRAY_MODE` or `YYPOINTER_MODE`
+   - `@@SINK@@` → sink state id
    - `@@TABLES@@` → all DFA tables and start condition defines
    - `@@VERBATIM_RULES@@` → indented verbatim lines from section 2
    - `@@RULES@@` → switch dispatch cases
    - `@@EPILOGUE@@` → verbatim_bottom_
-   - `@@YYTEXT_MODE@@` → `YYARRAY_MODE` or `YYPOINTER_MODE`
 3. Write the final substituted template to the output stream
+
+---
+
+## 7. Compression Mode
+
+### 7.1 Enabling Compression
+
+Compression is disabled by default. To enable, pass the `-c` flag to the ft_lex compiler:
+
+```bash
+ft_lex input.l output.c -c
+```
+
+This sets `LexFile::compression_ = true`, which instructs Codegen to:
+
+1. Use `TablePacker` to compress DFA transition tables
+2. Generate `#define MODE_COMPRESSION` in the output
+3. Emit base/check/next arrays instead of dense yytable
+
+### 7.2 Size Tradeoff
+
+**Memory savings:**
+
+- **Standard mode:** `NB_STATES × 256 × 4 bytes` (dense 2D table)
+  - Example: 100 states → 100 × 256 × 4 = 102 KB
+
+- **Compression mode:** approximately 25-35% of standard size (highly dependent on DFA sparsity)
+  - Same example: ~30-35 KB (3D arrays + check/base/next vectors)
+
+**Runtime cost:**
+
+- **Standard mode:** 1 array lookup: `yytable[state][char]`
+- **Compression mode:** 2-3 memory accesses:
+  - `offset = yybase[state] + char` (arithmetic)
+  - `if (yycheck[offset] == state)` (memory check)
+  - `state = yynext[offset]` (memory lookup)
+  - Approximately 25% slower per lookup, but usually negligible
+
+### 7.3 When to Use Compression
+
+**Use standard mode when:**
+
+- Memory is not a concern (embedded systems rarely have issues with 100-200 KB)
+- Maximum speed is required (rare for lexers)
+
+**Use compression mode when:**
+
+- Large DFAs (1000+ states) must fit in resource-constrained environments
+- Distributing many lexers that need to fit in ROM or tight memory budgets
+- Reducing binary size for distribution (network/embedded scenarios)
+
+### 7.4 Implementation Notes
+
+- TablePacker uses a greedy offset allocation strategy
+- States are sorted by transition density (densest first) to improve cache locality
+- The algorithm is O(n × alphabet_size) in state count and alphabet size
+- Check array ensures correct ownership and prevents false positives
+- Sink state loops to itself; detected as invalid transition in both modes

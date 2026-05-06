@@ -55,6 +55,7 @@ Top-level parser output.
 | `verbatim_bottom_` | `string` | Entire section 3 |
 | `conditions_` | `map<string, bool>` | Declared start conditions: name → `true` for `%x` (exclusive), `false` for `%s` (inclusive) |
 | `array_mode_` | `bool` | `true` if `%array` mode is used (fixed `yytext` buffer); `false` for `%pointer` mode (heap-allocated `yytext`) |
+| `compression_` | `bool` | `true` if compression mode is enabled (via `-c` CLI flag), reducing memory footprint of DFA tables |
 
 Macros are stored as `vector` to preserve declaration order, which is semantically significant: a macro may only reference macros declared before it.
 

@@ -22,10 +22,10 @@ struct PackedTables {
 /**
  * @brief Packs a sparse DFA transition table into compressed 1D arrays.
  * 
- * Uses a greedy offset-search algorithm: states are stored by number of
- * outgoiing transitions (densets first), then each state is placed at the
+ * Uses a greedy offset-search algorithm: states are sorted by number of
+ * outgoing transitions (densest first), then each state is placed at the
  * lowest offset in next[]/check[] where none of its transitions collide
- * with already-placed strates.
+ * with already-placed states.
  */
 class TablePacker {
 public:

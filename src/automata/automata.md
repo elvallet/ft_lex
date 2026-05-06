@@ -59,12 +59,14 @@ struct DFA {
     std::unordered_map<int, std::vector<int>> final_states_; // dfa state -> list of rule indices (sorted by priority)
     std::vector<std::unordered_map<char, int>> transitions_;
     std::map<std::string, int> start_states_;   // condition name -> dfa entry state
+    int sink_;                                   // sink state id for invalid transitions
 };
 ```
 
 - `initial_state_` is the DFA state used by `INITIAL`.
 - `final_states_` stores a **list of matching rule indices** for each accepting state, sorted in ascending order (index 0 = highest priority).
 - `start_states_` contains entries for each condition, including BOL variants (e.g., `INITIAL`, `COMMENT`, `COMMENT_BOL`). Used by generated `BEGIN(X)` support.
+- `sink_` is the state id assigned to the sink state created during completion. All undefined transitions route to this state. The sink state loops to itself on all symbols, ensuring the scanner can gracefully handle unexpected input without crashing.
 
 ---
 
