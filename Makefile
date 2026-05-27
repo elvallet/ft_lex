@@ -2,7 +2,7 @@ NAME		:= ft_lex
 MAKEFLAGS	+= --no-print-directory
 
 CXX			:= c++
-CXXFLAGS	:= -Wall -Wextra -Werror -std=c++17 -g3
+CXXFLAGS	:= -Wall -Wextra -Werror -std=c++17
 
 # --- Sources ---
 SRCDIR		:= src/
@@ -26,11 +26,18 @@ OBJS		:= $(patsubst $(SRCDIR)%.cpp,$(OBJDIR)%.o,$(SRCS))
 TEMPLATE	:= src/template/yylex_template.c
 TEMPLATE_H	:= src/codegen/yylex_template.h
 
+# --- libl ---
+LIBL_DIR	:= libl
+LIBL		:= $(LIBL_DIR)/libl.a
+
 # --- Rules ---
-all: $(TEMPLATE_H) $(NAME)
+all: $(TEMPLATE_H) $(LIBL) $(NAME)
 
 $(NAME): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(LIBL):
+	$(MAKE) -C $(LIBL_DIR)
 
 $(TEMPLATE_H): $(TEMPLATE)
 	mkdir -p $(dir $@)
@@ -56,9 +63,11 @@ $(OBJDIR)%.o: $(SRCDIR)%.cpp
 
 clean:
 	rm -f $(OBJS) $(TEMPLATE_H)
+	$(MAKE) -C $(LIBL_DIR) clean
 
 fclean: clean
 	rm -f $(NAME)
+	$(MAKE) -C $(LIBL_DIR) fclean
 
 re: fclean all
 

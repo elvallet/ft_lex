@@ -318,11 +318,14 @@ Dispatch phase:
           (candidate.match_end - match_start)
       yy_assign_yytext(match_start, committed_len)
       yybuf_pos = match_start + committed_len  // push back trailing chars
+      save yylineno, yy_at_bol
+      update yylineno (count '\n' in yytext), update yy_at_bol
       switch (candidate.rule_id):
           case 0: { user action 0 } break;
           case 1: { user action 1 } break;
           ...
       if action did not REJECT: break
+      restore yylineno, yy_at_bol // undo before next candidate
 ```
 
 This approach naturally supports backtracking without explicit state management: trailing characters remain in the buffer and will be reconsumed by the next token match.
@@ -343,7 +346,7 @@ if (!initialized) {
 
 This ensures `yycurrent_state` is explicitly set, even though multiple start conditions may exist. The `yystart_states[]` array includes DFA entries for all conditions and their BOL variants.
 
-**BOL handling:** after executing a rule action, the scanner updates `yy_at_bol`:
+**BOL handling:** before executing a rule action, the scanner updates `yy_at_bol` (alongside `yylineno`) so the action observes the correct state:
 
 ```c
 yy_at_bol = (yyleng > 0 && yytext[yyleng - 1] == '\n');

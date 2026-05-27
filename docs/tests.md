@@ -268,12 +268,6 @@ ERROR: unterminated string at line 4
 ID(next)
 ```
 
-> **Design note — yylineno off-by-one:**  
-> The runtime increments `yylineno` *before* executing the action (inside the match loop).  
-> When the `\n` rule fires for the unterminated string, the newline has already been counted.  
-> The real `lex` reports line 3 (where the string started); your runtime will report line 4.  
-> This is expected given the current template architecture — flag it as a known deviation.
-
 **What this hunts:**
 
 - `yymore_len` not preserved when `BEGIN()` changes state  
@@ -611,9 +605,9 @@ ATTR(height=42)
 
 ---
 
-### D3 · `REJECT` — stack behavior and POSIX compliance gap
+### D3 · `REJECT` — candidate stack behavior
 
-**Features exercised:** REJECT stack, rule priority, comparison with POSIX expected behavior.
+**Features exercised:** REJECT stack, rule priority, multiple rules accepting at the same length.
 
 ```lex
 %{
@@ -632,7 +626,7 @@ ATTR(height=42)
 
 **Input:** `hello hi`
 
-**POSIX expected behavior** (re-runs DFA without rejected rule):
+**Expected output:**
 
 ```txt
 EXACT
@@ -641,22 +635,13 @@ WORD(hello)
 WORD(hi)
 ```
 
-**Observed behavior with stack-based REJECT** (pops shorter lengths):
+**Why this works:** during the scan of `hello`, the DFA reaches an accepting state after 5 characters where all three rules are simultaneously active. The candidate array therefore contains entries for rules 0, 1 and 2 all at `len=5`, in addition to entries for rule 2 at shorter lengths. The dispact loop pops rule 0 first (highest priority) → `EXACT`, `REJECT`.Then rule 1 at `len=5` → `FIVE(hello)`, `REJECT`. The rule 2 at `len=5` → `WORD(hello)`. The POSIX outcome is produced without re-running the DFA.
 
-```txt
-EXACT           ← (rule0, len=5) popped
-WORD(hell)      ← (rule2, len=4) — best at len 4 is [a-z]+, NOT [a-z]{5} (which needs exactly 5)
-WORD(hel)       ← (rule2, len=3)
-WORD(he)        ← (rule2, len=2)
-WORD(h)         ← (rule2, len=1)
-                ← stack exhausted → echo 'h'? No: last REJECT with no more stack → echo, advance
-WORD(hi)
-```
+**Whats this hunts:**
 
-> **This test deliberately reveals the compliance gap.**  
-> True POSIX REJECT re-runs the automaton excluding the rejected rule for the *same* input position.  
-> The stack-based implementation gives *shorter* matches, not *alternative* rules at full length.  
-> Document this as a known limitation if you do not implement full re-run semantics.
+- All three rules correctly registered as candidates at the same match length
+- `REJECT` consuming the candidate without corrupting `yylineno` or `yy_at_bol` (both are restored on each rejected candidate)
+- Stack exhaustion after all candidates at all length are rejected → echo first char and advance
 
 ---
 
@@ -682,9 +667,9 @@ WORD(hi)
 **Input:** programmatically generate one line of 10 000 `a` characters followed by `\n`.
 
 ```sh
-python3 -c "print('a' * 10000)" | ./your_scanner
+python3 -c "print('a' * 10000)" | ./scanner
 # or:
-printf '%10000s\n' | tr ' ' 'a' | ./your_scanner
+printf '%10000s\n' | tr ' ' 'a' | ./scanner
 ```
 
 **Expected output:**

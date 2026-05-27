@@ -463,7 +463,7 @@ ID(baz)
 STRING("with \"quotes\"") len=17
 ID(qux)
 ID(err)
-ERROR: unterminated string at line 3
+ERROR: unterminated string at line 4
 ID(next)
 EOF
 

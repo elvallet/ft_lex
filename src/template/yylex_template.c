@@ -325,6 +325,17 @@ int yylex(void)
 			/* Trailing context push-back: scanner will re-read these chars. */
 			yybuf_pos	= match_start + committed_len;
 
+			/* Update yylineno and yy_at_bol before the action so the user
+			 * sees the correct line number during execution. Save both so
+			 * they can be restored if the action calls REJECT. */
+			int	saved_yylineno	= yylineno;
+			int	saved_yy_at_bol	= yy_at_bol;
+			for (size_t i = bu_yymore_len; i < yyleng; i++) {
+				if (yytext[i] == '\n')
+					yylineno++;
+			}
+			yy_at_bol	= (yyleng > 0 && yytext[yyleng - 1] == '\n');
+
 			int	reject_flag	= 0;
 			#define REJECT (reject_flag = 1)
 			switch (cand->rule_id) {
@@ -333,16 +344,12 @@ int yylex(void)
 			#undef REJECT
 
 			if (!reject_flag) {
-				/* Count newlines only in the chars actually consumed. */
-				for (size_t i = bu_yymore_len; i < yyleng; i++) {
-					if (yytext[i] == '\n')
-						yylineno++;
-				}
-				yy_at_bol	= (yyleng > 0 && yytext[yyleng - 1] == '\n');
 				rule_executed	= 1;
 				break;
 			}
-			/* REJECT: try next candidate. yybuf_pos will be reset above. */
+			/* REJECT: undo yylineno and yy_at_bol before trying next candidate. */
+			yylineno	= saved_yylineno;
+			yy_at_bol	= saved_yy_at_bol;
 		}
 
 		/* All candidates rejected or none succeeded: echo first char. */
