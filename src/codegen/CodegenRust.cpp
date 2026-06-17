@@ -1,5 +1,6 @@
 #include "CodegenRust.hpp"
 #include <algorithm>
+#include <limits>
 
 using namespace codegen;
 
@@ -144,7 +145,10 @@ void CodegenRust::write_generated_lexer(const automata::DFA& dfa, const lexer_fi
 	oss << "\t\t}\n";
 	oss << "\t}\n\n";
 
-	oss << "\tfn sink() -> usize { " << dfa.sink_ << " }\n";
+	int sink_val = dfa.sink_ < 0 ? std::numeric_limits<int>::max() : dfa.sink_;
+	oss << "\tfn sink() -> usize { " << sink_val << " }\n";
+
+	oss << "\t#[allow(unreachable_code)]\n";
 	oss << "\tfn execute_action(scanner: &mut Scanner<Self>, rule_id: i32) -> Option<i32> {\n";
 
 	for (size_t i = 0; i < lexfile.verbatim_rules_.size(); ++i) {
@@ -153,7 +157,7 @@ void CodegenRust::write_generated_lexer(const automata::DFA& dfa, const lexer_fi
 
 	oss << "\t\tmatch rule_id {\n";
 	for (size_t i = 0; i < lexfile.rules_.size(); ++i) {
-		oss << "\t\t\t" << i << " => { "<< lexfile.rules_[i].action_ << " }\n";
+		oss << "\t\t\t" << i << " => { "<< lexfile.rules_[i].action_ << " None }\n";
 	}
 	oss << "\t\t\t_ => None,\n";
 	oss << "\t\t}\n";

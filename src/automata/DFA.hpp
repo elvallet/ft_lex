@@ -31,7 +31,7 @@ struct DFA {
 	/** @brief Sink state id for invalid/undefined transitions.
 	 *  Created during DFA completion; loops to itself on all symbols.
 	 */
-	int											sink_;
+	int											sink_ = -1;
 };
 
 } // namespace automata
