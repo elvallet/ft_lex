@@ -1,10 +1,16 @@
 #include "CodegenRust.hpp"
+#include <algorithm>
 
 using namespace codegen;
 
 void CodegenRust::generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostream& out)
 {
-
+	std::ostringstream	oss;
+	write_prologue(lexfile, oss);
+	write_tables(dfa, lexfile, oss);
+	write_generated_lexer(dfa, lexfile, oss);
+	write_epilogue(lexfile, oss);
+	out << oss.str();
 }
 
 void CodegenRust::write_prologue(const lexer_file::LexFile& lexfile, std::ostringstream& oss)
@@ -120,22 +126,45 @@ void CodegenRust::write_generated_lexer(const automata::DFA& dfa, const lexer_fi
 
 	oss << "impl LexerDef for GeneratedLexer {\n";
 	oss << "\tfn transition(state: usize, c: u8) -> i32 { YYTABLE[state][c as usize] }\n";
-	oss << "\tfn accept_entries(state: usize) -> &'static [(i32, i32)] { YYACCEPT_DATA[state] }\n";
-	oss << "\tfn start_state(condition: usize, bol: bool) -> usize { ??? }\n";
-	oss << "\tfn sink() -> usize { " << dfa.sink_ << " }\n";
-	oss << "\tfn yywrap(scanner: &mut Scanner<Self>) -> bool { true }\n";
-	oss << "\tfn execute_action(scanner: &mut Scanner<Self>, rule_id: i32) -> Option<i32> {\n";
-	// Boucle rule
-	oss << "\t\tmatch rule_id {\n";
-	oss << "\t\t\t" << 0 << " => { [user action] }\n"; // ...
 
+	oss << "\tfn accept_entries(state: usize) -> &'static [(i32, i32)] {\n";
+	oss << "\t\tlet offset = YYACCEPT_OFFSET[state];\n";
+	oss << "\t\tif offset < 0 {\n";
+	oss << "\t\t\treturn &[];\n";
+	oss << "\t\t}\n";
+	oss << "\t\tlet count = YYACCEPT_COUNT[state];\n";
+	oss << "\t\t&YYACCEPT_DATA[offset as usize .. offset as usize + count]\n";
+	oss << "\t}\n\n";
+
+	oss << "\tfn start_state(condition: usize, bol: bool) -> usize {\n";
+	oss << "\t\tif bol {\n";
+	oss << "\t\t\tYYSTART_STATES[condition + YYNB_CONDITIONS]\n";
+	oss << "\t\t} else {\n";
+	oss << "\t\t\tYYSTART_STATES[condition]\n";
+	oss << "\t\t}\n";
+	oss << "\t}\n\n";
+
+	oss << "\tfn sink() -> usize { " << dfa.sink_ << " }\n";
+	oss << "\tfn execute_action(scanner: &mut Scanner<Self>, rule_id: i32) -> Option<i32> {\n";
+
+	for (size_t i = 0; i < lexfile.verbatim_rules_.size(); ++i) {
+		oss << "\t\t" << lexfile.verbatim_rules_[i] << "\n";
+	}
+
+	oss << "\t\tmatch rule_id {\n";
+	for (size_t i = 0; i < lexfile.rules_.size(); ++i) {
+		oss << "\t\t\t" << i << " => { "<< lexfile.rules_[i].action_ << " }\n";
+	}
+	oss << "\t\t\t_ => None,\n";
 	oss << "\t\t}\n";
 	oss << "\t}\n";
-	oss << "}\n";
-
+	oss << "}\n\n";
 }
 
 void CodegenRust::write_epilogue(const lexer_file::LexFile& lexfile, std::ostringstream& oss)
 {
 	oss << lexfile.verbatim_bottom_ << std::endl;
+	if (lexfile.verbatim_bottom_.find("fn main") == std::string::npos) {
+		oss << "fn main() { ftlex_runtime::ftlex_main::<GeneratedLexer>(); }\n";
+	}
 }

@@ -5,6 +5,7 @@
 
 #include "automata/Pipeline.hpp"
 #include "codegen/Codegen.hpp"
+#include "codegen/CodegenRust.hpp"
 #include "lexer_file/LexParser.hpp"
 
 struct Arguments
@@ -13,14 +14,17 @@ struct Arguments
 	std::string	output_file;
 	bool		output_to_file	= true;
 	bool		compression		= false;
+	bool		backend_rust	= false;
 };
 
 static void print_usage(const std::string &prog_name)
 {
-	std::cerr << "Usage: " << prog_name << " <input.l> [-nt] [output.c]" << std::endl;
-	std::cerr << "  -n : (unused)" << std::endl;
-	std::cerr << "  -t : output to stdout instead of file" << std::endl;
-	std::cerr << "	-c : activate compression mode" << std::endl;
+	std::cerr << "Usage: " << prog_name << " <input.l> [OPTIONS] [output.c]" << std::endl;
+	std::cerr << "  -n     : (unused)" << std::endl;
+	std::cerr << "  -t     : output to stdout instead of file" << std::endl;
+	std::cerr << "	-c 	   : activate compression mode" << std::endl;
+	std::cerr << "  --rust : generate output in Rust (lex.yy.rs by default)" << std::endl;
+	std::cerr << "           cannot be used with compression mode and cannot output tu stdout" << std::endl;
 }
 
 static Arguments parse_arguments(int argc, char **argv)
@@ -43,12 +47,19 @@ static Arguments parse_arguments(int argc, char **argv)
 			args.output_to_file = false;
 		} else if (arg == "-c") {
 			args.compression	= true;
+		} else if (arg == "--rust") {
+			args.backend_rust	= true;
 		} else if (arg[0] == '-') {
 			print_usage(argv[0]);
 			throw std::invalid_argument("Unknown flag: " + arg);
 		} else {
 			args.output_file = arg;
 		}
+	}
+
+	if ((args.backend_rust && !args.output_to_file) || (args.backend_rust && args.output_file.empty())) {
+		args.output_to_file = true;
+		args.output_file = "lex.yy.rs";
 	}
 
 	if (args.output_to_file && args.output_file.empty())
@@ -73,7 +84,6 @@ int main(int argc, char **argv)
 		lexer_file::LexFile			lex_file = parser.parse();
 		automata::ParsingPipeline	pipeline;
 		automata::DFA				dfa = pipeline.execute(lex_file.rules_, lex_file.conditions_);
-		codegen::Codegen			generator;
 		std::ofstream				ofs;
 
 		if (args.output_to_file)
@@ -87,7 +97,13 @@ int main(int argc, char **argv)
 		if (!ofs.is_open())
 			throw std::runtime_error("Failed to open output stream");
 
-		generator.generate(dfa, lex_file, ofs);
+		if (args.backend_rust) {
+			codegen::CodegenRust	generator;
+			generator.generate(dfa, lex_file, ofs);
+		} else {
+			codegen::Codegen	generator;
+			generator.generate(dfa, lex_file, ofs);
+		}
 		return 0;
 	} catch (const lexer_file::ParseError& err) {
 		std::cerr << err.what() << std::endl;

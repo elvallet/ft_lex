@@ -1,0 +1,11 @@
+[package]
+name = "test_generated"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ftlex_runtime = { path = "../runtime" }
+
+[[bin]]
+name = "scanner"
+path = "./scanner/lex.yy.rs"

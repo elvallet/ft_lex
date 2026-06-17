@@ -2,14 +2,33 @@ use std::marker::PhantomData;
 use std::io::{Read, Write};
 
 pub trait LexerDef {
+    fn ftlex_main<D: LexerDef>() {
+        let mut scanner = Scanner::<D>::new(
+            Box::new(std::io::stdin()),
+            Box::new(std::io::stdout()),
+        );
+        loop {
+            if scanner.yylex() == 0 { break; }
+        }
+    }
+
     fn transition(state: usize, c: u8) -> i32;
     fn accept_entries(state: usize) -> &'static [(i32, i32)];
     fn start_state(condition: usize, bol: bool) -> usize;
     fn sink() -> usize;
-    fn yywrap(scanner: &mut Scanner<Self>) -> bool where Self: Sized;
+
+    fn yywrap(_scanner: &mut Scanner<Self>) -> bool
+    where Self: Sized
+    {
+        true
+    }
+
     fn execute_action(scanner: &mut Scanner<Self>, rule_id: i32) -> Option<i32>
-    where 
-        Self: Sized;
+    where Self: Sized;
+}
+
+pub fn ftlex_main<D: LexerDef>() {
+    D::ftlex_main::<D>();
 }
 
 struct Candidate {

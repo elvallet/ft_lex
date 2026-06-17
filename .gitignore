@@ -6,7 +6,6 @@ ft_lex
 *yylex_template.h
 /obj
 */obj
-scanner
 stub.c
 lex.yy.c
 .tmp*
