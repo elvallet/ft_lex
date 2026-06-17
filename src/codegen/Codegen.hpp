@@ -2,8 +2,10 @@
 
 #include <string>
 #include <fstream>
+#include <cstddef>
 
 #include "../automata/DFA.hpp"
+#include "../automata/Stats.hpp"
 #include "../lexer_file/LexFile.hpp"
 
 namespace codegen {
@@ -19,7 +21,7 @@ public:
 	 * @param lexfile Parsed lexer file sections and rule actions.
 	 * @param out Output stream for the generated C code.
 	 */
-	void	generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostream& out);
+	size_t	generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostream& out, automata::Stats* stats = nullptr);
 
 private:
 	/**
@@ -31,7 +33,7 @@ private:
 	 * @brief Write DFA tables consumed by yylex().
 	 * @param dfa Deterministic automaton.
 	 */
-	void	write_tables(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::string& tmpl);
+	void	write_tables(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::string& tmpl, automata::Stats* stats);
 	/**
 	 * @brief Materialize yylex() from the embedded template and substitutions.
 	 * @param lexfile Parsed lexer file.

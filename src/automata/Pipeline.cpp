@@ -5,6 +5,8 @@
 #include "Pipeline.hpp"
 #include <stdexcept>
 #include <algorithm>
+#include <iomanip>
+#include <iostream>
 
 using namespace automata; using namespace std;
 
@@ -22,6 +24,49 @@ bool is_trivially_empty_action(const std::string& action)
 
 } // namespace
 
+void ParsingPipeline::print_stats()
+{
+	std::cerr << "Statistics" << std::endl;
+	std::cerr << "  LexFile" << std::endl;
+	std::cerr << "    macros: " << stats_.macros_count << std::endl;
+	std::cerr << "    rules: " << stats_.rules_count << std::endl;
+	std::cerr << "    start conditions: " << stats_.start_conditions_count << std::endl;
+	std::cerr << "  NFA" << std::endl;
+	std::cerr << "    states: " << stats_.nfa_states << std::endl;
+	std::cerr << "  DFA" << std::endl;
+	std::cerr << "    states: " << stats_.dfa_states << std::endl;
+	std::cerr << "    sink states: " << stats_.dfa_sink_states << std::endl;
+	std::cerr << "  Tables" << std::endl;
+	std::cerr << "    raw size: " << stats_.table_size_raw << std::endl;
+	std::cerr << "    packed size: " << stats_.table_size_packed << std::endl;
+	if (stats_.compression_enabled) {
+		float factor = stats_.table_size_packed == 0
+			? 0.0f
+			: static_cast<float>(stats_.table_size_raw) / static_cast<float>(stats_.table_size_packed);
+		float saved_percent = stats_.table_size_raw == 0
+			? 0.0f
+			: (1.0f - static_cast<float>(stats_.table_size_packed) / static_cast<float>(stats_.table_size_raw)) * 100.0f;
+		std::cerr << std::fixed << std::setprecision(3)
+			<< "    compression factor: " << factor << "x (" << saved_percent << "%)" << std::endl;
+		std::cerr.unsetf(std::ios::floatfield);
+	} else {
+		std::cerr << "    compression: non activée" << std::endl;
+	}
+	std::cerr << "  Output" << std::endl;
+	std::cerr << "    file: " << (stats_.output_file.empty() ? "(stdout)" : stats_.output_file) << std::endl;
+	std::cerr << "    bytes: " << stats_.output_bytes << std::endl;
+}
+
+Stats& ParsingPipeline::stats()
+{
+	return stats_;
+}
+
+const Stats& ParsingPipeline::stats() const
+{
+	return stats_;
+}
+
 /**
  * @brief Compile all rules, merge NFAs, build DFA, then complete transitions.
  * @param rules Ordered lexer rules (priority = lowest index).
@@ -33,6 +78,12 @@ DFA ParsingPipeline::execute(
 {
 	thompson_ = Thompson();
 	subset_construction_ = SubsetConstruction();
+	stats_.nfa_states = 0;
+	stats_.dfa_states = 0;
+	stats_.dfa_sink_states = 0;
+	stats_.table_size_raw = 0;
+	stats_.table_size_packed = 0;
+	stats_.compression_ratio = 0.0f;
 
 	std::vector<NFA>	nfas;
 	for (int i = 0; i < (int)rules.size(); ++i) {
@@ -77,9 +128,13 @@ DFA ParsingPipeline::execute(
 	}
 
 	auto [global_nfa, nfa_entry_points]	= merge_keyed(groups);
+	stats_.nfa_states = static_cast<int>(global_nfa.transitions_.size());
 
 	DFA	dfa	= subset_construction_.build(global_nfa, nfa_entry_points);
 	subset_construction_.complete(dfa, global_nfa);
+	stats_.dfa_states = static_cast<int>(dfa.transitions_.size());
+	stats_.dfa_sink_states = dfa.sink_ >= 0 ? 1 : 0;
+	stats_.table_size_raw = static_cast<size_t>(stats_.dfa_states) * 256;
 
 	return dfa;
 }

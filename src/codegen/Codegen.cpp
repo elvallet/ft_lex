@@ -76,7 +76,7 @@ std::string build_rules_switch(const lexer_file::LexFile& lexfile)
  * @param lexfile Parsed lexer file.
  * @param out Output stream.
  */
-void Codegen::generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostream& out)
+size_t Codegen::generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostream& out, automata::Stats* stats)
 {
 	// yylex.template.c is embedded as a byte array in yylex_template.h.
 	std::string tmpl(
@@ -92,11 +92,15 @@ void Codegen::generate(const automata::DFA& dfa, const lexer_file::LexFile& lexf
 	replace_all(tmpl, "@@SINK@@", std::to_string(dfa.sink_));
 
 	write_prologue(lexfile, tmpl);
-	write_tables(dfa, lexfile, tmpl);
+	write_tables(dfa, lexfile, tmpl, stats);
 	write_yylex(lexfile, tmpl);
 	write_epilogue(lexfile, tmpl);
 
 	out << tmpl;
+	if (stats) {
+		stats->output_bytes = tmpl.size();
+	}
+	return tmpl.size();
 }
 
 /**
@@ -125,9 +129,10 @@ void Codegen::write_prologue(const lexer_file::LexFile& lexfile, std::string& tm
  * 
  * @param dfa Deterministic automaton.
  */
-void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::string& tmpl)
+void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::string& tmpl, automata::Stats* stats)
 {
 	const size_t	nb_states	= dfa.transitions_.size();
+	const size_t	raw_table_size	= nb_states * 256;
 	std::ostringstream	oss;
 
 	// ------------------------------------------------------------------------
@@ -170,6 +175,11 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 		TablePacker	tp;
 
 		auto tables = tp.pack(dfa.transitions_, dfa.sink_);
+		if (stats) {
+			stats->table_size_raw = raw_table_size;
+			stats->table_size_packed = tables.next_.size();
+			stats->compression_ratio = raw_table_size == 0 ? 0.0f : static_cast<float>(stats->table_size_packed) / static_cast<float>(raw_table_size);
+		}
 
 		oss << "static int yybase[] = {";
 		for (size_t i = 0; i < tables.base_.size(); i++) {
@@ -203,6 +213,11 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 			oss << " },\n";
 		}
 		oss << "};\n";
+		if (stats) {
+			stats->table_size_raw = raw_table_size;
+			stats->table_size_packed = raw_table_size;
+			stats->compression_ratio = 0.0f;
+		}
 	}
 
 	// ------------------------------------------------------------------------

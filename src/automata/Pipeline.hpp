@@ -7,6 +7,7 @@
 #include <string>
 #include <map>
 
+#include "Stats.hpp"
 #include "Parser.hpp"
 #include "Thompson.hpp"
 #include "SubsetConstruction.hpp"
@@ -30,6 +31,11 @@ public:
 	 */
 	DFA execute(const std::vector<lexer_file::Rule>& rules, const std::map<std::string, bool>& conditions);
 
+	Stats& stats();
+	const Stats& stats() const;
+
+	void print_stats();
+
 private:
 	/**
 	 * @brief Merge multiple per-rule NFAs into one NFA with a shared start state.
@@ -37,7 +43,6 @@ private:
 	 * @return Merged NFA preserving per-rule accepting-state indices.
 	 */
 	NFA merge(const std::vector<NFA>& nfas);
-
 	/**
 	 * @brief Merge NFA groups by start condition and expose each condition entry point.
 	 * @param groups Pairs of `<condition_name, list of NFAs active in that condition>`.
@@ -51,6 +56,8 @@ private:
 	Thompson			thompson_;
 	/** @brief Subset-construction DFA builder instance. */
 	SubsetConstruction	subset_construction_;
+	/** @brief Execution statistics accumulated during the pipeline. */
+	Stats				stats_;
 };
 
 } // namespace automata

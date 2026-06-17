@@ -4,14 +4,22 @@
 
 using namespace codegen;
 
-void CodegenRust::generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostream& out)
+size_t CodegenRust::generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostream& out, automata::Stats* stats)
 {
 	std::ostringstream	oss;
 	write_prologue(lexfile, oss);
-	write_tables(dfa, lexfile, oss);
+	write_tables(dfa, lexfile, oss, stats);
 	write_generated_lexer(dfa, lexfile, oss);
 	write_epilogue(lexfile, oss);
-	out << oss.str();
+	std::string generated = oss.str();
+	if (stats) {
+		stats->table_size_raw = static_cast<size_t>(dfa.transitions_.size()) * 256;
+		stats->table_size_packed = stats->table_size_raw;
+		stats->compression_ratio = 0.0f;
+		stats->output_bytes = generated.size();
+	}
+	out << generated;
+	return generated.size();
 }
 
 void CodegenRust::write_prologue(const lexer_file::LexFile& lexfile, std::ostringstream& oss)
@@ -22,9 +30,14 @@ void CodegenRust::write_prologue(const lexer_file::LexFile& lexfile, std::ostrin
 	oss << lexfile.verbatim_top_ << std::endl;
 }
 
-void CodegenRust::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostringstream& oss)
+void CodegenRust::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostringstream& oss, automata::Stats* stats)
 {
 	const size_t	nb_states	= dfa.transitions_.size();
+	if (stats) {
+		stats->table_size_raw = nb_states * 256;
+		stats->table_size_packed = stats->table_size_raw;
+		stats->compression_ratio = 0.0f;
+	}
 
 	std::vector<int>			ids;
 	std::vector<std::string>	base_conditions;
