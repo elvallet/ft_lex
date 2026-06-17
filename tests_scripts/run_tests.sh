@@ -5,6 +5,9 @@
 #   ./run_tests.sh              → run all tests
 #   ./run_tests.sh A1 C2 E1    → run only the named tests
 #   ./run_tests.sh --list       → list all available test names
+#
+# Extra verbosity:
+#   SHOW_OUTPUTS=1 ./run_tests.sh   → print expected and actual outputs on pass/fail
 # =============================================================================
 
 set -euo pipefail
@@ -21,6 +24,7 @@ CFLAGS="${CFLAGS:--Wall -Wextra}"
 LIBL="${LIBL:-./libl/libl.a}"                   # path to your libl.a, or leave empty to auto-detect
 LINK_FLAGS=""                              # populated below
 TIMEOUT=10                                 # max seconds per test (requires `timeout`)
+SHOW_OUTPUTS="${SHOW_OUTPUTS:-0}"
 
 # Minimal yywrap stub injected when no libl is available.
 # yywrap() returning 1 means "no more input" — the correct default.
@@ -160,9 +164,9 @@ run_test() {
 
     # -- Step 4: diff -----------------------------------------------------------
     if diff -u "$expected" "$actual" > "$workdir/diff.txt" 2>&1; then
-        _pass "$name" "$description"
+        _pass "$name" "$description" "$expected" "$actual"
     else
-        _fail "$name" "output mismatch" "$workdir/diff.txt"
+        _fail "$name" "output mismatch" "$workdir/diff.txt" "$expected" "$actual"
     fi
 
     rm -rf "$workdir"
@@ -170,25 +174,62 @@ run_test() {
 
 # Print a passing test line
 _pass() {
+    local name="$1"
+    local description="${2:-}"
+    local expected_file="${3:-}"
+    local actual_file="${4:-}"
+
     printf "${GREEN}PASS${RESET}"
-    [[ -n "${2:-}" ]] && printf "  %s" "${CYAN}${2}${RESET}"
+    [[ -n "$description" ]] && printf "  %s" "${CYAN}${description}${RESET}"
     printf "\n"
+
+    if [[ "$SHOW_OUTPUTS" == "1" ]]; then
+        _print_file_section "EXPECTED" "$expected_file"
+        _print_file_section "ACTUAL" "$actual_file"
+    fi
+
     (( PASS_COUNT++ )) || true
 }
 
 # Print a failing test line and show the diff / log
 _fail() {
-    local name="$1" reason="$2" logfile="$3"
+    local name="$1" reason="$2" logfile="$3" expected_file="${4:-}" actual_file="${5:-}"
     printf "${RED}FAIL${RESET}  %s\n" "$reason"
     if [[ -n "$logfile" && -f "$logfile" ]]; then
-        # Indent the diff/log for readability
-        sed 's/^/    /' "$logfile" | head -40
-        local lines
-        lines=$(wc -l < "$logfile")
-        (( lines > 40 )) && printf "    %s[...%d more lines]%s\n" "$YELLOW" "$((lines-40))" "$RESET"
+        _print_file_section "DETAILS" "$logfile"
+    fi
+    if [[ -n "$expected_file" && -f "$expected_file" && -n "$actual_file" && -f "$actual_file" ]]; then
+        _print_file_section "EXPECTED" "$expected_file"
+        _print_file_section "ACTUAL" "$actual_file"
     fi
     FAILED_TESTS+=("$name")
     (( FAIL_COUNT++ )) || true
+}
+
+_print_file_section() {
+    local title="$1" file="$2" max_lines="${3:-40}"
+
+    printf "    %s%s%s\n" "$BOLD" "$title" "$RESET"
+
+    if [[ ! -f "$file" ]]; then
+        printf "      <missing>\n"
+        return
+    fi
+
+    awk -v max="$max_lines" '{
+        if (NR <= max) {
+            printf "      %s\n", $0
+        }
+        if (NR == max) {
+            exit
+        }
+    }' "$file"
+
+    local lines
+    lines=$(wc -l < "$file")
+    if (( lines > max_lines )); then
+        printf "      %s[...%d more lines]%s\n" "$YELLOW" "$((lines - max_lines))" "$RESET"
+    fi
 }
 
 # Helper: check if a value is in a bash array

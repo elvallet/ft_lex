@@ -73,6 +73,43 @@ Each stage is documented in detail under `/docs`.
 
 ---
 
+## Bonus
+
+### Rust backend
+
+`ft_lex` can generate a Rust scanner instead of a C scanner via the `--rust` flag:
+
+```sh
+./ft_lex input.l --rust    # produces lex.yy.rs
+```
+
+The generated file contains only DFA tables and action dispatch. The scanner engine lives in a companion runtime crate (`ftlex_runtime`) that must be added as a dependency to your Cargo project:
+
+```toml
+[dependencies]
+ftlex_runtime = { path = "path/to/ftlex_runtime" }
+```
+
+Rule actions are written in Rust. The POSIX macro API is exposed as methods on `scanner`:
+
+```lexer
+%%
+
+[a-zA-Z]+       { scanner.echo(); return Some(1); }
+[0-9]+          { let _ = scanner.yyout.write_all(b"NUMBER\n"); return Some(2); }
+
+%%
+```
+
+See [`docs/rust_backend.md`](docs/rust_backend.md) for the full architecture and design decisions, and [`ftlex_runtime/README.md`](runtime/README.md) for the scanner API reference.
+
+### DFA table compression
+
+When the `-c` flag is passed, the dense transition table is replaced with a compressed `base` / `check` / `next` representation - approximately 25-35% of the original size with a modest runtime cost per lookup.
+See [`docs/codegen.md`](docs/codegen.md)  §3.5 and  §7 for the algorithm and size tradeoffs.
+
+---
+
 ## Known Limitations
 
 **Variable-length trailing context.** The `r/s` operator is supported only when the trailing part `s` has a fixed, statically computable length. Patterns like `foo/bar+` (variable-length trailing) are rejected at parse time with an explicit error.
