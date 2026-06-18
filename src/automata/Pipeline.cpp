@@ -73,7 +73,7 @@ const Stats& ParsingPipeline::stats() const
  * @return Fully constructed DFA for the full rule set.
  */
 DFA ParsingPipeline::execute(
-	const vector<lexer_file::Rule>& rules,
+	vector<lexer_file::Rule>& rules,
 	const map<string, bool>& conditions)
 {
 	thompson_ = Thompson();
@@ -84,6 +84,19 @@ DFA ParsingPipeline::execute(
 	stats_.table_size_raw = 0;
 	stats_.table_size_packed = 0;
 	stats_.compression_ratio = 0.0f;
+
+	vector<DFA>	trailing_dfas;
+	int count = 0;
+	for (size_t i = 0; i < rules.size(); ++i) {
+		if (rules[i].trailing_is_variable_) {
+			NFA nfa = thompson_.compile(parser_.parse(rules[i].trailing_), i);
+			map <string, int> entry;
+			entry.insert({"INSERT", i});
+			DFA dfa = subset_construction_.build(nfa, entry);
+			trailing_dfas.push_back(dfa);
+			rules[i].trailing_dfa_id_ = count++;
+		}
+	}
 
 	std::vector<NFA>	nfas;
 	for (int i = 0; i < (int)rules.size(); ++i) {
@@ -135,6 +148,7 @@ DFA ParsingPipeline::execute(
 	stats_.dfa_states = static_cast<int>(dfa.transitions_.size());
 	stats_.dfa_sink_states = dfa.sink_ >= 0 ? 1 : 0;
 	stats_.table_size_raw = static_cast<size_t>(stats_.dfa_states) * 256;
+	dfa.trailing_dfas_ = trailing_dfas;
 
 	return dfa;
 }

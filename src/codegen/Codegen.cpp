@@ -221,15 +221,16 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 	}
 
 	// ------------------------------------------------------------------------
-	// yyaccept_data[] - flat array of {rule_id, trailing_len} entries.
+	// yyaccept_data[] - flat array of {rule_id, {tlen, tdfa_id}} entries.
 	//
 	// For each state, rules are stored by ascending rule index
-	// (index 0 = highest priority). trailing_len is -1 when the rule
-	// carries no trailing context.
+	// (index 0 = highest priority). tlen is -1 when the rule carries
+	// no trailing context and -2 when the tlen is variable. tdfa_id is -1 when
+	// the rule carries no trailing context or when the tlen is fixed.
 	// ------------------------------------------------------------------------
 	std::vector<int>	offsets(nb_states, -1);
 	std::vector<int>	counts(nb_states, 0);
-	std::vector<std::pair<int, int>>	flat;	// {rule_id, trailing_len}
+	std::vector<std::pair<int, std::pair<int, int>>>	flat;	// {rule_id, {trailing_len, trailing_dfa_id} }
 
 	for (size_t s = 0; s < nb_states; s++) {
 		auto found	= dfa.final_states_.find(static_cast<int>(s));
@@ -243,25 +244,28 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 		counts[s]	= static_cast<int>(sorted.size());
 
 		for (int rule_id : sorted) {
-			// trailing_length_ is only meaningful when trailing_ is non-empty.
 			int	tlen	= -1;
+			int tdfa_id	= -1;
 			if (rule_id >= 0 && static_cast<size_t>(rule_id) < lexfile.rules_.size()
 				&& !lexfile.rules_[rule_id].trailing_.empty()) {
 					tlen	= lexfile.rules_[rule_id].trailing_length_;
+					tdfa_id	= lexfile.rules_[rule_id].trailing_dfa_id_;
 				}
-				flat.push_back({rule_id, tlen});
+				flat.push_back({rule_id, {tdfa_id, tlen}});
 		}
 	}
+
 	oss << "static YYAcceptEntry yyaccept_data[] = {\n";
 	if (flat.empty()) {
 		// Avoid a zero-length array (not valid C89, guard for safety).
-		oss << "\t{ -1, -1 }\n";
+		oss << "\t{ -1, -1, -1}\n";
 	} else {
-		for (auto& [rid, tlen] : flat) {
-			oss << "\t{ " << rid << ", " << tlen << " },\n";
+		for (auto& [rid, dt] : flat) {
+			oss << "\t{ " << rid << ", " << dt.first <<  ", " << dt.second << " },\n";
 		}
 	}
 	oss <<"};\n";
+
 
 	oss << "static int yyaccept_offset[" << nb_states << "] = {";
 	for (size_t s = 0; s < nb_states; s++) {
@@ -274,6 +278,81 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 		oss << (s == 0 ? " " : ", ") << counts[s];
 	}
 	oss << " };\n";
+
+	for (size_t i = 0; i < dfa.trailing_dfas_.size(); ++i) {
+		auto	dfa_curr	= dfa.trailing_dfas_[i];
+		size_t	size_curr	= dfa_curr.transitions_.size();
+
+		if (lexfile.compression_) {
+			TablePacker	tp;
+
+			auto tables = tp.pack(dfa_curr.transitions_, dfa_curr.sink_);
+
+			oss << "static int yytrailing_" << i << "_base[] = {";
+			for (size_t i = 0; i < tables.base_.size(); i++) {
+				oss << (i == 0 ? " " : ", ") << tables.base_[i];
+			}
+			oss << " };\n";
+
+			oss << "static int yytrailing_" << i << "_check[] = {";
+			for (size_t i = 0; i < tables.check_.size(); i++) {
+				oss << (i == 0 ? " " : ", ") << tables.check_[i];
+			}
+			oss << " };\n";
+
+			oss << "static int yytrailing_" << i << "_next[] = {";
+			for (size_t i = 0; i < tables.next_.size(); i++) {
+				oss << (i == 0 ? " " : ", ") << tables.next_[i];
+			}
+			oss << " };\n";
+		} else {
+
+			oss << "static int yytrailing_" << i << "_table[" << size_curr << "][256] = {\n";
+			for (size_t s = 0; s < size_curr; ++s) {
+				oss << "\t{";
+				for (int c = 0; c < 256; c++) {
+					auto it = dfa_curr.transitions_[s].find(static_cast<char>(c));
+					oss << (c == 0 ? " " : ", ")
+						<< (it != dfa_curr.transitions_[s].end() ? it->second : -1);
+				}
+				oss << " },\n";
+			}
+			oss << "};\n";
+		}
+
+		oss << "static int yytrailing_" << i << "_accept[" << size_curr << "] = {";
+		for (size_t s = 0; s < size_curr; ++s) {
+			auto it = dfa_curr.final_states_.find(s);
+			oss << (s == 0 ? " " : ", ")
+				<< (it != dfa_curr.final_states_.end() ? 1 : 0);
+		}
+	}
+
+	int nb_trailing = dfa.trailing_dfas_.size();
+
+	oss << "static int (*yytrailing_tables[])[256] = {";
+	for (size_t s = 0; s < nb_trailing; ++s) {
+		oss << (s == 0 ? " " : ", ")
+			<< "yytrailing_" << s << "_table";
+	}
+	if (!nb_trailing) oss << " NULL ";
+	oss << "};\n";
+
+	oss << "static int *yytrailing_accepts[] = {";
+	for (size_t s = 0; s < nb_trailing; ++s) {
+		oss << (s == 0 ? " " : ", ")
+			<< "yytrailing_" << s << "_accept";
+	}
+	if (!nb_trailing) oss << " NULL ";
+	oss << "};\n";
+
+	oss << "static int yytrailing_sizes[] = {";
+	for (size_t s = 0; s < nb_trailing; ++s) {
+		oss << (s == 0 ? " " : ", ")
+			<< dfa.trailing_dfas_[s].transitions_.size();
+	}
+	if (!nb_trailing) oss << -1;
+	oss << "};\n";
 
 	replace_all(tmpl, "@@TABLES@@", oss.str());
 }

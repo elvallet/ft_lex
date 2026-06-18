@@ -101,12 +101,12 @@ int compute_fixed_length(const vector<Token>& postfix)
 				int left = lengths.back();
 				lengths.pop_back();
 				if (left != right)
-					throw runtime_error("variable-length trailing context is not supported");
+					throw TrailingIsVariableException();
 				lengths.push_back(left);
 				break;
 			}
 			default:
-				throw runtime_error("variable-length trailing context is not supported");
+				throw TrailingIsVariableException();
 		}
 	}
 
@@ -270,18 +270,18 @@ pair<string, string> LexParser::detect_trailing(const string& raw)
 	string trailing = raw.substr(i + 1);
 
 	// Trailing context must stay fixed-length because codegen rewinds with yyless().
-	size_t e = trailing.find_first_of("*?+");
-	if (e != string::npos) {
-		throw ParseError("variable-length trailing context is not supported", reader_.context());
-	}
-	if (trailing.find('{') != string::npos) {
-		size_t close = trailing.find('}');
-		if (close != string::npos) {
-			string content = trailing.substr(trailing.find('{') + 1, close - trailing.find('{') - 1);
-			if (content.back() == ',')
-				throw ParseError("variable-length trailing context is not supported", reader_.context());
-		}
-	}
+	//size_t e = trailing.find_first_of("*?+");
+	//if (e != string::npos) {
+	//	throw ParseError("variable-length trailing context is not supported", reader_.context());
+	//}
+	//if (trailing.find('{') != string::npos) {
+	//	size_t close = trailing.find('}');
+	//	if (close != string::npos) {
+	//		string content = trailing.substr(trailing.find('{') + 1, close - trailing.find('{') - 1);
+	//		if (content.back() == ',')
+	//			throw ParseError("variable-length trailing context is not supported", reader_.context());
+	//	}
+	//}
 	return {pattern, trailing};
 }
 
@@ -638,8 +638,12 @@ void LexParser::compile_trailing_length()
 
 	for (Rule& rule : lex_file_.rules_) {
 		if (!rule.trailing_.empty()) {
-			// Precompute trailing length so generated code can emit yyless(yyleng - N).
-			rule.trailing_length_ = compute_fixed_length(parser.parse(rule.trailing_));
+			try {
+				rule.trailing_length_ = compute_fixed_length(parser.parse(rule.trailing_));
+			} catch (const TrailingIsVariableException &e) {
+				rule.trailing_length_ = -2;
+				rule.trailing_is_variable_ = true;
+			}
 		}
 	}
 }

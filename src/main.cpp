@@ -28,7 +28,7 @@ static void print_usage(const std::string &prog_name)
 	std::cerr << "  -t     : output to stdout instead of file" << std::endl;
 	std::cerr << "  -c     : activate compression mode" << std::endl;
 	std::cerr << "  --rust : generate output in Rust (lex.yy.rs by default)" << std::endl;
-	std::cerr << "           cannot be used with compression mode and cannot output tu stdout" << std::endl;
+	std::cerr << "           cannot be used with compression mode and cannot output to stdout" << std::endl;
 }
 
 static Arguments parse_arguments(int argc, char **argv)

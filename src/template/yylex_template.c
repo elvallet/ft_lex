@@ -26,11 +26,13 @@
 
 /* -----------------------------------------------------------------------
  * Accept-table entry: one per (rule, accepting state) pair.
- * trailing-len == -1 means no trailing context for this rule.
+ * trailing_len == -1 means no trailing context for this rule.
+ * trailing_len == -2 means variable trailing context length.
  * ----------------------------------------------------------------------- */
 typedef struct {
 	int	rule_id;
 	int	trailing_len;
+	int trailing_dfa_id;
 } YYAcceptEntry;
 
 /* -----------------------------------------------------------------------
@@ -74,11 +76,13 @@ static size_t	yymore_len			= 0;
  * 					  (including trailing context if any)
  *  trailing_len	- chars to push back before invoking the action;
  * 					  -1 if rule has no trailing context
+ * 					  -2 if tlen is not fixed.
  * ----------------------------------------------------------------------- */
 typedef struct {
 	int		rule_id;
 	size_t	match_end;
 	int		trailing_len;
+	int		trailing_dfa_id;
 } YYCandidate;
 
 /* YYCAND_MAX caps the total (rule x length) pairs collected by token.
@@ -276,9 +280,10 @@ int yylex(void)
 				/* Push in reverse priority: index (cnt-1) first, 0 last.
 				 * After the loop, index 0 (highest priority) is on top. */
 				for (int ri = cnt - 1; ri >= 0 && yyncandidates < YYCAND_MAX; ri--) {
-					yycandidates[yyncandidates].rule_id		= yyaccept_data[base + ri].rule_id;
-					yycandidates[yyncandidates].match_end	= yybuf_pos;
-					yycandidates[yyncandidates].trailing_len= yyaccept_data[base + ri].trailing_len;
+					yycandidates[yyncandidates].rule_id			= yyaccept_data[base + ri].rule_id;
+					yycandidates[yyncandidates].match_end		= yybuf_pos;
+					yycandidates[yyncandidates].trailing_len	= yyaccept_data[base + ri].trailing_len;
+					yycandidates[yyncandidates].trailing_dfa_id = yyaccept_data[base + ri].trailing_dfa_id;
 					yyncandidates++;
 				}
 			}
@@ -315,10 +320,19 @@ int yylex(void)
 			YYCandidate	*cand	= &yycandidates[ci];
 
 			size_t	full_len		= cand->match_end - match_start;
-			size_t	committed_len	= (cand->trailing_len >= 0)
-				? full_len - (size_t)cand->trailing_len
-				: full_len;
-				size_t	bu_yymore_len	= yymore_len;
+			size_t committed_len;
+
+			if (cand->trailing_len >= 0) {
+				committed_len = full_len - (size_t)cand->trailing_len;
+			} else if (cand->trailing_len == -2) {
+				committed_len = yy_simulate_trailing(cand->trailing_dfa_id, match_start, cand->match_end);
+				if (committed_len == (size_t)-1) {
+					continue;
+				}
+			} else {
+				// Pas de trailing
+				committed_len = full_len;
+			}
 
 			yy_assign_yytext(match_start, committed_len);
 

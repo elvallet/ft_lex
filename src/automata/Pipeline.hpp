@@ -29,7 +29,7 @@ public:
 	 * @param conditions Declared start conditions (`%s` and `%x`) from lexer file.
 	 * @return Complete DFA generated from all rules.
 	 */
-	DFA execute(const std::vector<lexer_file::Rule>& rules, const std::map<std::string, bool>& conditions);
+	DFA execute(std::vector<lexer_file::Rule>& rules, const std::map<std::string, bool>& conditions);
 
 	Stats& stats();
 	const Stats& stats() const;

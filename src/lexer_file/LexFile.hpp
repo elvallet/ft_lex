@@ -3,8 +3,18 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <exception>
 
 namespace lexer_file {
+
+class TrailingIsVariableException: public std::exception {
+public:
+	TrailingIsVariableException() {}
+	virtual ~TrailingIsVariableException() throw() {}
+
+private:
+	const char* what() const throw() { return std::string("Trailing is variable").c_str(); }
+};
 
 /**
  * @brief A lexer rule made of a regular-expression pattern and an action.
@@ -20,6 +30,8 @@ struct Rule {
 	std::string					action_;
 	/** Fixed trailing length used by codegen for `yyless(yyleng - n)`. */
 	int							trailing_length_;
+	bool						trailing_is_variable_ = false;
+	int							trailing_dfa_id_	= -1;
 	/**
 	 * @brief True when the rule action is the pipe operator (`|`).
 	 *
