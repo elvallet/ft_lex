@@ -373,7 +373,7 @@ Rule LexParser::parse_single_rule(const string& line)
 	auto pattern = detect_trailing(split.first);
 
 	if (split.second == "|") {
-		return Rule{conditions, split.first, "", split.second, -1, true, bol};
+		return Rule{conditions, split.first, "", split.second, -1, false, -1, true, bol};
 	}
 
 	string completed_action;
@@ -386,7 +386,7 @@ Rule LexParser::parse_single_rule(const string& line)
 		completed_action = complete_action(split.second);
 	}
 
-	return Rule{conditions, pattern.first, pattern.second, completed_action, -1, false, bol};
+	return Rule{conditions, pattern.first, pattern.second, completed_action, -1, false, -1, false, bol};
 }
 
 /**

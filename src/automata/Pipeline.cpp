@@ -90,9 +90,8 @@ DFA ParsingPipeline::execute(
 	for (size_t i = 0; i < rules.size(); ++i) {
 		if (rules[i].trailing_is_variable_) {
 			NFA nfa = thompson_.compile(parser_.parse(rules[i].trailing_), i);
-			map <string, int> entry;
-			entry.insert({"INSERT", i});
-			DFA dfa = subset_construction_.build(nfa, entry);
+			SubsetConstruction sc;
+			DFA dfa = sc.build(nfa, {{"INITIAL", nfa.initial_state_}});
 			trailing_dfas.push_back(dfa);
 			rules[i].trailing_dfa_id_ = count++;
 		}

@@ -12,7 +12,7 @@
 using namespace automata; using namespace std;
 
 namespace {
-	char translate_escaped_char(char c);
+	char translate_escape_sequence(const string& regex, size_t& pos);
 
 	void add_ascii_char(bitset<128>& allowed, int c) {
 		if (c < 0 || c > 127)
@@ -71,7 +71,7 @@ namespace {
 		if (regex[pos] == '\\') {
 			if (++pos >= regex.size())
 				throw runtime_error("Invalid escape sequence in character class");
-			return {static_cast<unsigned char>(translate_escaped_char(regex[pos++]))};
+			return {static_cast<unsigned char>(translate_escape_sequence(regex, pos))};
 		}
 
 		if (regex[pos] == '[' && pos + 1 < regex.size() && regex[pos + 1] == ':') {
@@ -118,29 +118,44 @@ namespace {
 		return build_char_class_tokens(allowed);
 	}
 
-	const map<char, char>	ESCAPED = {
-		{'n', '\n'},
-		{'t', '\t'},
-		{'r', '\r'},
-		{'\\', '\\'},
-		{'[', '['},
-		{']', ']'},
-		{'(', '('},
-		{')', ')'},
-		{'*', '*'},
-		{'+', '+'},
-		{'?', '?'},
-		{'|', '|'},
-		{'.', '.'},
-		{'\"', '\"'}
-	};
+	char translate_escape_sequence(const string& regex, size_t& pos) {
+		if (pos >= regex.size())
+			throw runtime_error("Invalid escape sequence: trailing '\\'");
 
-	char translate_escaped_char(char c) {
-		auto res = ESCAPED.find(c);
-		if (res == ESCAPED.end())
-			throw runtime_error(string("Invalid escape sequence: ") + c);
-		
-		return res->second;
+		char c = regex[pos];
+
+		if (c == 'x') {
+			++pos;
+			if (pos >= regex.size() || !isxdigit((unsigned char)regex[pos]))
+				throw runtime_error("Invalid hex escape sequence");
+			int val = 0;
+			for (int k = 0; k < 2 && pos < regex.size() && isxdigit((unsigned char)regex[pos]); ++k, ++pos)
+				val = val * 16 + (isdigit((unsigned char)regex[pos])
+					? regex[pos] - '0'
+					: tolower((unsigned char)regex[pos]) - 'a' + 10);
+			return static_cast<char>(val);
+		}
+
+		if (c >= '0' && c <= '7') {
+			int val = 0;
+			for (int k = 0; k < 3 && pos < regex.size() && regex[pos] >= '0' && regex[pos] <= '7'; ++k, ++pos)
+				val = val * 8 + (regex[pos] - '0');
+			return static_cast<char>(val);
+		}
+
+		++pos;
+		static const map<char, char> ESCAPED = {
+			{'n', '\n'}, {'t', '\t'}, {'r', '\r'}, {'a', '\a'}, {'b', '\b'},
+			{'f', '\f'}, {'v', '\v'}, {'0', '\0'},
+			{'\\', '\\'}, {'[', '['}, {']', ']'}, {'(', '('}, {')', ')'},
+			{'*', '*'},  {'+', '+'}, {'?', '?'}, {'|', '|'},  {'.', '.'},
+			{'"', '"'},  {'/', '/'}, {'^', '^'}, {'-', '-'},  {'{', '{'},
+			{'}', '}'}, {'<', '<'}, {'>', '>'},  {'$', '$'},
+		};
+		auto it = ESCAPED.find(c);
+		if (it == ESCAPED.end())
+			return c;	/* unknown escape: pass char through, as flex does */
+		return it->second;
 	}
 
 	vector<Token> parse_char_class(const string& regex, size_t* i) {
@@ -276,9 +291,9 @@ vector<Token> Parser::tokenize_and_insert_concat(const string& regex) {
 		if (in_string) {
 			Token t;
 			if (c == '\\') {
-				if (++i >= regex.size())
-					throw runtime_error("Invalid escape sequence: trailing '\\'");
-				t = Token{CHAR, translate_escaped_char(regex[i])};
+				++i;
+				t = Token{CHAR, translate_escape_sequence(regex, i)};
+				--i;
 			} else {
 				t = Token{CHAR, regex[i]};
 			}
@@ -289,9 +304,9 @@ vector<Token> Parser::tokenize_and_insert_concat(const string& regex) {
 		} else {
 			Token t;
 			if (c == '\\') {
-				if (++i >= regex.size())
-					throw runtime_error("Invalid escape sequence: trailing '\\'");
-				t = Token{CHAR, translate_escaped_char(regex[i])};
+				++i;
+				t = Token{CHAR, translate_escape_sequence(regex, i)};
+				--i;
 			} else if (c == '.') {
 				vector<Token> wildcard_tokens = build_wildcard_tokens();
 				for (const Token& wildcard_token : wildcard_tokens) {

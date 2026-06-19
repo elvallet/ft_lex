@@ -8,7 +8,10 @@ ft_lex
 */obj
 stub.c
 lex.yy.c
+flex.yy.c
 .tmp*
+ft_scan
+scan
 # Compiled Object files
 *.slo
 *.lo

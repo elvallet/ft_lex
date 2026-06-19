@@ -197,6 +197,52 @@ void yylex_destroy(void)
 }
 
 /* -----------------------------------------------------------------------
+ * yy_simulate_trailing - run an isolated trailing_context DFA over
+ * yybuf[start..end) and return the length of the longest match.
+ * 
+ * Returns the committed length (chars belonging to the base pattern,
+ * i.e. position of the longest trailing match minus start), or
+ * (size_t)-1 if the trailing DFA never reached an accepting state. 
+ * ----------------------------------------------------------------------- */
+static size_t yy_simulate_trailing(int dfa_id, size_t start, size_t end)
+{
+	int		size	= yytrailing_sizes[dfa_id];
+	int		*accept	= yytrailing_accepts[dfa_id];
+
+#if !defined(MODE_COMPRESSION)
+	int	(*table)[256]	= yytrailing_tables[dfa_id];
+#else
+	int	*base	= yytrailing_bases[dfa_id];
+	int	*check	= yytrailing_checks[dfa_id];
+	int	*next	= yytrailing_nexts[dfa_id];
+#endif
+
+	/* Try each split point left-to-right: leftmost match = longest base pattern. */
+	for (size_t p = start; p <= end; p++) {
+		int		state	= 0;
+		size_t	pos		= p;
+
+		while (pos < end) {
+			unsigned char	c	= (unsigned char)yybuf[pos];
+
+#if !defined(MODE_COMPRESSION)
+			state	= table[state][c];
+#else
+			int offset	= base[state] + c;
+			state	= (check[offset] == state) ? next[offset] : -1;
+#endif
+			if (state < 0)
+				break;
+			pos++;
+		}
+
+		if (pos == end && state >= 0 && state < size && accept[state])
+			return p - start;	/* base pattern length */
+	}
+	return (size_t)-1;
+}
+
+/* -----------------------------------------------------------------------
  * yylex - main scanner entry point.
  * ----------------------------------------------------------------------- */
 int yylex(void)
@@ -344,7 +390,7 @@ int yylex(void)
 			 * they can be restored if the action calls REJECT. */
 			int	saved_yylineno	= yylineno;
 			int	saved_yy_at_bol	= yy_at_bol;
-			for (size_t i = bu_yymore_len; i < yyleng; i++) {
+			for (size_t i = yymore_len; i < yyleng; i++) {
 				if (yytext[i] == '\n')
 					yylineno++;
 			}

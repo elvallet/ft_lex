@@ -230,7 +230,7 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 	// ------------------------------------------------------------------------
 	std::vector<int>	offsets(nb_states, -1);
 	std::vector<int>	counts(nb_states, 0);
-	std::vector<std::pair<int, std::pair<int, int>>>	flat;	// {rule_id, {trailing_len, trailing_dfa_id} }
+	std::vector<std::pair<int, std::pair<int, int>>>	flat;	// {rule_id, {tlen, tdfa_id}}
 
 	for (size_t s = 0; s < nb_states; s++) {
 		auto found	= dfa.final_states_.find(static_cast<int>(s));
@@ -251,7 +251,7 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 					tlen	= lexfile.rules_[rule_id].trailing_length_;
 					tdfa_id	= lexfile.rules_[rule_id].trailing_dfa_id_;
 				}
-				flat.push_back({rule_id, {tdfa_id, tlen}});
+				flat.push_back({rule_id, {tlen, tdfa_id}});
 		}
 	}
 
@@ -326,9 +326,10 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 			oss << (s == 0 ? " " : ", ")
 				<< (it != dfa_curr.final_states_.end() ? 1 : 0);
 		}
+		oss << " };\n";
 	}
 
-	int nb_trailing = dfa.trailing_dfas_.size();
+	size_t nb_trailing = dfa.trailing_dfas_.size();
 
 	oss << "static int (*yytrailing_tables[])[256] = {";
 	for (size_t s = 0; s < nb_trailing; ++s) {
