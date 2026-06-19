@@ -7,11 +7,12 @@ ft_lex
 /obj
 */obj
 stub.c
-lex.yy.c
+lex.yy.*
 flex.yy.c
 .tmp*
 ft_scan
 scan
+.build_progress*
 # Compiled Object files
 *.slo
 *.lo

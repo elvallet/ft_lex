@@ -5,7 +5,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 BINARY="./ft_lex"
-LEXER="tests_files/benchmark.l"
+LEXER="grammar/benchmark.l"
 
 RED='\033[0;31m'
 GRN='\033[0;32m'

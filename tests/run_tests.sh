@@ -1057,9 +1057,11 @@ EOF
     rm -rf "$d"
 }
 
-# ---- E5: Variable-length trailing context (should error or warn) ------------
-# This is a PROBE test: variable-length trailing is unsupported per your design.
-# The correct behavior is a parse error from ft_lex, NOT silent wrong output.
+# ---- E5: Variable-length trailing context -----------------------------------
+# Variable-length trailing context (e.g. [0-9]+/[a-z]+) is supported: ft_lex
+# compiles an isolated trailing DFA per rule and simulates it at runtime to
+# find the longest valid trailing match, so committed_len is resolved
+# dynamically instead of via a fixed yyless() offset.
 
 register_test E5
 test_E5() {
@@ -1081,34 +1083,17 @@ test_E5() {
 EOF
 
     printf '%s\n' '42abc 7 hello' > "$d/input.txt"
-    printf '' > "$d/expected.txt"   # doesn't matter — we check exit code
 
-    printf "  %-12s" "${BOLD}E5${RESET}"
+    cat > "$d/expected.txt" << 'EOF'
+NUM_BEFORE_WORD(42)
+WORD(abc)
+NUM(7)
+WORD(hello)
+EOF
 
-    local workdir; workdir=$(mktemp -d)
-    if ! timeout "$TIMEOUT" "$FT_LEX" "$d/grammar.l" 2>"$workdir/err.log"; then
-        printf "${GREEN}PASS${RESET}  ${CYAN}ft_lex correctly rejected variable-length trailing context${RESET}\n"
-        printf "    ft_lex said: %s\n" "$(head -1 "$workdir/err.log")"
-        (( PASS_COUNT++ )) || true
-    else
-        # ft_lex did NOT error — check if the output is at least plausible
-        [[ -f lex.yy.c ]] && mv lex.yy.c "$workdir/lex.yy.c" || true
-        local e5_link="$LINK_FLAGS"
-        if [[ "$LINK_FLAGS" == "__stub__" ]]; then
-            printf '\n%s\n' "$YYWRAP_STUB" >> "$workdir/lex.yy.c"; e5_link=""
-        fi
-        if $CC $CFLAGS -o "$workdir/scanner" "$workdir/lex.yy.c" $e5_link 2>/dev/null &&
-           timeout "$TIMEOUT" "$workdir/scanner" < "$d/input.txt" > "$workdir/actual.txt" 2>&1; then
-            printf "${YELLOW}WARN${RESET}  ft_lex accepted variable-length trailing context without error\n"
-            printf "    Output: %s\n" "$(cat "$workdir/actual.txt" | tr '\n' ' ')"
-            printf "    Verify manually that the output is correct.\n"
-        else
-            printf "${YELLOW}WARN${RESET}  ft_lex accepted the grammar but the scanner failed to compile or run\n"
-        fi
-        (( SKIP_COUNT++ )) || true
-    fi
-
-    rm -rf "$workdir" "$d"
+    run_test "E5" "$d/grammar.l" "$d/input.txt" "$d/expected.txt" \
+             "variable-length trailing context · isolated trailing DFA simulation"
+    rm -rf "$d"
 }
 
 # =============================================================================

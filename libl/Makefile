@@ -17,15 +17,15 @@ $(OBJDIR)%.o: $(SRCDIR)%.c
 		${CC} ${CFLAGS} -c $< -o $@ -I .
 
 ${NAME}: ${OBJS}
-		${LIBC} ${NAME} ${OBJS}
-		${LIBR} ${NAME}
+		@${LIBC} ${NAME} ${OBJS}
+		@${LIBR} ${NAME}
 
-all : ${NAME}
+all : @${NAME}
 
 clean :
-		${RM} ${OBJS} 
+		@${RM} ${OBJS} 
 
 fclean : clean
-		${RM} ${NAME}
+		@${RM} ${NAME}
 
 re : fclean all clean
