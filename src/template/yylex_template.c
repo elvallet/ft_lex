@@ -64,7 +64,6 @@ static size_t	yybuf_capa			= 0;
 static size_t	yybuf_pos			= 0;
 
 static int		yycurrent_state		= 0;
-static int		yy_at_bol			= 1;
 static int		yymore_flag			= 0;
 static size_t	yymore_len			= 0;
 
@@ -104,7 +103,7 @@ static int			yyncandidates = 0;
  #define ECHO fwrite(yytext, yyleng, 1, yyout)
 
 /* Switch start condition. */
- #define BEGIN(x) (yycurrent_state = (x))
+ #define BEGIN yycurrent_state =
 
 /* Rewind: keep only the first n bytes of the current match.
  * match_start is still the token's start at the time yyless runs. */
@@ -144,6 +143,51 @@ static int yyread(void)
 	yybuf[yybuf_size]	= '\0';
 	yybuf_pos++;
 	return (unsigned char)c;
+}
+
+/* -----------------------------------------------------------------------
+ * input - read and consume the next raw character from yyin.
+ * Tracks yylineno like the dispatch phase does for matched text.
+ * ----------------------------------------------------------------------- */
+int input(void)
+{
+	int c = yyread();
+
+	if (c != EOF && c == '\n')
+		yylineno++;
+
+	return c;
+}
+
+/* -----------------------------------------------------------------------
+ * unput - push a character back into the input stream so the next
+ * input() (or scan) call rereads it.
+ * 
+ * If there's no room before yybuf_pos (buffer exhausted on the left),
+ * grow the buffer and shift its content to make room, like
+ * flex does, instead of silently dropping the character.
+ * ----------------------------------------------------------------------- */
+void unput(int c)
+{
+	if (yybuf_pos == 0) {
+		size_t	new_capa	= yybuf_capa == 0 ? YYBUF_INIT_SIZE : yybuf_capa * 2;
+		char	*tmp		= realloc(yybuf, new_capa);
+
+		if (!tmp)
+			return;
+
+		memmove(tmp + (new_capa - yybuf_capa), tmp, yybuf_size + 1);
+		yybuf_pos	= new_capa - yybuf_capa;
+		yybuf_size	+= new_capa - yybuf_capa;
+		yybuf		= tmp;
+		yybuf_capa	= new_capa;
+	}
+
+	yybuf_pos--;
+	yybuf[yybuf_pos] = (char)c;
+
+	if (c == '\n' && yylineno > 1)
+		yylineno--;
 }
 
 /* -----------------------------------------------------------------------
@@ -277,14 +321,16 @@ int yylex(void)
 	 * Outer loop: scan and dispatch one token per iteration.
 	 * =================================================================== */
 	while (1) {
+		int yy_at_bol	= (match_start == 0) || (yybuf[match_start - 1] == '\n');
 
 		/* Select DFA entry: BOL variant when at beginnning of line. */
 		int state	= yy_at_bol
 			? yystart_states[yycurrent_state + YYNB_CONDITIONS]
 			: yystart_states[yycurrent_state];
 
-		yybuf_pos		= match_start;
-		yyncandidates	= 0;
+		size_t base_start	= match_start;	
+		yybuf_pos			= match_start;
+		yyncandidates		= 0;
 
 		/* -----------------------------------------------------------------
 		 * SCAN PHASE — drive the DFA and collect all possible candidates.
@@ -361,56 +407,51 @@ int yylex(void)
 		 * 	   On REJECT: loop to the next candidate.
 		 * ----------------------------------------------------------------- */
 		int	rule_executed	= 0;
+		int ci				= yyncandidates - 1;
 
-		for (int ci = yyncandidates - 1; ci >= 0; ci--) {
-			YYCandidate	*cand	= &yycandidates[ci];
+		for (; ci >= 0; ci--) {
+			YYCandidate *cand	= &yycandidates[ci];
 
-			size_t	full_len		= cand->match_end - match_start;
-			size_t committed_len;
+			size_t	full_len	= cand->match_end - base_start;
+			size_t	committed_len;
 
 			if (cand->trailing_len >= 0) {
 				committed_len = full_len - (size_t)cand->trailing_len;
 			} else if (cand->trailing_len == -2) {
 				committed_len = yy_simulate_trailing(cand->trailing_dfa_id, match_start, cand->match_end);
-				if (committed_len == (size_t)-1) {
+				if (committed_len == (size_t)-1)
 					continue;
-				}
 			} else {
-				// Pas de trailing
 				committed_len = full_len;
 			}
 
-			yy_assign_yytext(match_start, committed_len);
+			yy_assign_yytext(base_start, committed_len);
+			yybuf_pos	= base_start + committed_len;
 
-			/* Trailing context push-back: scanner will re-read these chars. */
-			yybuf_pos	= match_start + committed_len;
-
-			/* Update yylineno and yy_at_bol before the action so the user
-			 * sees the correct line number during execution. Save both so
-			 * they can be restored if the action calls REJECT. */
-			int	saved_yylineno	= yylineno;
-			int	saved_yy_at_bol	= yy_at_bol;
+			int saved_yylineno	= yylineno;
 			for (size_t i = yymore_len; i < yyleng; i++) {
 				if (yytext[i] == '\n')
 					yylineno++;
 			}
-			yy_at_bol	= (yyleng > 0 && yytext[yyleng - 1] == '\n');
 
-			int	reject_flag	= 0;
-			#define REJECT (reject_flag = 1)
+			match_start = yybuf_pos;
+
+			#define REJECT goto yy_try_next_candidate
+
 			switch (cand->rule_id) {
 @@RULES@@
 			}
+
 			#undef REJECT
 
-			if (!reject_flag) {
-				rule_executed	= 1;
-				break;
-			}
-			/* REJECT: undo yylineno and yy_at_bol before trying next candidate. */
+			rule_executed = 1;
+			break;
+
+yy_try_next_candidate:
+			match_start	= base_start;
 			yylineno	= saved_yylineno;
-			yy_at_bol	= saved_yy_at_bol;
 		}
+
 
 		/* All candidates rejected or none succeeded: echo first char. */
 		if (!rule_executed) {
@@ -419,9 +460,6 @@ int yylex(void)
 			match_start++;
 			continue;
 		}
-
-		/* Advance token start to just past what was consumed. */
-		match_start	 = yybuf_pos;
 
 		/* Handle yymore() bookkeeping, or release yytext. */
 		if (yymore_flag) {
