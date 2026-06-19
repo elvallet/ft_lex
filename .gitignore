@@ -11,6 +11,7 @@ lex.yy.*
 flex.yy.c
 .tmp*
 ft_scan
+flex_scan
 scan
 .build_progress*
 # Compiled Object files

@@ -1,6 +1,7 @@
 #include "CodegenRust.hpp"
 #include <algorithm>
 #include <limits>
+#include <tuple>
 
 using namespace codegen;
 
@@ -88,7 +89,7 @@ void CodegenRust::write_tables(const automata::DFA& dfa, const lexer_file::LexFi
 
 	std::vector<int>	offsets(nb_states, -1);
 	std::vector<int>	counts(nb_states, 0);
-	std::vector<std::pair<int, int>>	flat;
+	std::vector<std::tuple<int, int, int>>	flat;
 
 	for (size_t s = 0; s < nb_states; s++) {
 		auto found = dfa.final_states_.find(static_cast<int>(s));
@@ -103,20 +104,23 @@ void CodegenRust::write_tables(const automata::DFA& dfa, const lexer_file::LexFi
 
 		for (int rule_id : sorted) {
 			int tlen	= -1;
+			int tdfa_id	= -1;
 			if (rule_id >= 0 && static_cast<size_t>(rule_id) < lexfile.rules_.size()
 				&& !lexfile.rules_[rule_id].trailing_.empty()) {
 					tlen	= lexfile.rules_[rule_id].trailing_length_;	
+					if (lexfile.rules_[rule_id].trailing_is_variable_)
+						tdfa_id = lexfile.rules_[rule_id].trailing_dfa_id_;
 				}
-				flat.push_back({rule_id, tlen});
+				flat.push_back({rule_id, tlen, tdfa_id});
 		}
 	}
 
-	oss << "static YYACCEPT_DATA: &[(i32, i32)] = &[\n";
+	oss << "static YYACCEPT_DATA: &[(i32, i32, i32)] = &[\n";
 	if (flat.empty()) {
 		oss << "\t(-1, -1),\n";
 	} else {
-		for (auto& [rid, tlen] : flat) {
-			oss << "\t( " << rid << ", " << tlen << "),\n";
+		for (auto& [rid, tlen, tdfa_id] : flat) {
+			oss << "\t( " << rid << ", " << tlen << ", " << tdfa_id << "),\n";
 		}
 	}
 	oss << "];\n";
@@ -132,6 +136,31 @@ void CodegenRust::write_tables(const automata::DFA& dfa, const lexer_file::LexFi
 		oss << (s == 0 ? " " : ", ") << counts[s];
 	}
 	oss << " ];\n";
+
+	for (size_t i = 0; i < dfa.trailing_dfas_.size(); ++i) {
+		const automata::DFA&	tdfa		= dfa.trailing_dfas_[i];
+		size_t					tsize		= tdfa.transitions_.size();
+
+		oss << "\nstatic YYTRAILING_" << i << "_TABLE: [[i32; 256]; " << tsize << "] = [\n";
+		for (size_t s = 0; s < tsize; ++s) {
+			oss << "\t[";
+			for (int c = 0; c < 256; c++) {
+				auto it = tdfa.transitions_[s].find(static_cast<char>(c));
+				oss << (c == 0 ? " " : ", ")
+					<< (it != tdfa.transitions_[s].end() ? it->second : -1);
+			}
+			oss << " ],\n";
+		}
+		oss << "];\n";
+
+		oss << "static YYTRAILING_" << i << "_ACCEPT: [bool; " << tsize << "] = [";
+		for (size_t s = 0; s < tsize; ++s) {
+			bool is_accepting = tdfa.final_states_.find(static_cast<int>(s)) != tdfa.final_states_.end()
+				&& !tdfa.final_states_.at(static_cast<int>(s)).empty();
+			oss << (s == 0 ? " " : ", ") << (is_accepting ? "true" : "false");
+		}
+		oss << " ];\n";
+	}
 }
 
 void CodegenRust::write_generated_lexer(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostringstream& oss)
@@ -139,9 +168,14 @@ void CodegenRust::write_generated_lexer(const automata::DFA& dfa, const lexer_fi
 	oss << "pub struct GeneratedLexer;\n\n";
 
 	oss << "impl LexerDef for GeneratedLexer {\n";
+	oss << "\ttype UserData = " << lexfile.rust_user_data_type_ << ";\n\n";
+
+	if (lexfile.verbatim_bottom_.find("fn user_yywrap") != std::string::npos) {
+		oss << "\tfn yywrap(scanner: &mut Scanner<Self>) -> bool { user_yywrap(scanner) }\n\n";
+	}
 	oss << "\tfn transition(state: usize, c: u8) -> i32 { YYTABLE[state][c as usize] }\n";
 
-	oss << "\tfn accept_entries(state: usize) -> &'static [(i32, i32)] {\n";
+	oss << "\tfn accept_entries(state: usize) -> &'static [(i32, i32, i32)] {\n";
 	oss << "\t\tlet offset = YYACCEPT_OFFSET[state];\n";
 	oss << "\t\tif offset < 0 {\n";
 	oss << "\t\t\treturn &[];\n";
@@ -160,6 +194,26 @@ void CodegenRust::write_generated_lexer(const automata::DFA& dfa, const lexer_fi
 
 	int sink_val = dfa.sink_ < 0 ? std::numeric_limits<int>::max() : dfa.sink_;
 	oss << "\tfn sink() -> usize { " << sink_val << " }\n";
+
+	if (!dfa.trailing_dfas_.empty()) {
+		oss << "\n\tfn yytrailing_transition(dfa_id: usize, state: usize, c: u8) -> i32 {\n";
+		oss << "\tmatch dfa_id {\n";
+		for (size_t i = 0; i < dfa.trailing_dfas_.size(); ++i) {
+			oss << "\t\t\t" << i << " => YYTRAILING_" << i << "_TABLE[state][c as usize],\n";
+		}
+		oss << "\t\t\t_ => -1,\n";
+		oss << "\t\t}\n";
+		oss << "\t}\n\n";
+
+		oss << "\tfn yytrailing_accept(dfa_id: usize, state: usize) -> bool {\n";
+		oss << "\t\tmatch dfa_id {\n";
+		for (size_t i = 0; i < dfa.trailing_dfas_.size(); ++i) {
+			oss << "\t\t\t" << i << " => state < YYTRAILING_" << i << "_ACCEPT.len() && YYTRAILING_" << i << "_ACCEPT[state],\n";
+		}
+		oss << "\t\t\t_ => false,\n";
+		oss << "\t\t}\n";
+		oss << "\t}\n";
+	}
 
 	oss << "\t#[allow(unreachable_code)]\n";
 	oss << "\tfn execute_action(scanner: &mut Scanner<Self>, rule_id: i32) -> Option<i32> {\n";

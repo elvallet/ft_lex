@@ -2,10 +2,13 @@ use std::marker::PhantomData;
 use std::io::{Read, Write};
 
 pub trait LexerDef {
-    fn ftlex_main<D: LexerDef>() {
+    type UserData;
+
+    fn ftlex_main<D: LexerDef>(user_data: D::UserData) {
         let mut scanner = Scanner::<D>::new(
             Box::new(std::io::stdin()),
             Box::new(std::io::stdout()),
+            user_data,
         );
         loop {
             if scanner.yylex() == 0 { break; }
@@ -13,7 +16,12 @@ pub trait LexerDef {
     }
 
     fn transition(state: usize, c: u8) -> i32;
-    fn accept_entries(state: usize) -> &'static [(i32, i32)];
+
+    /// Accept entries for a state: (rule_id, trailing_len, trailing_dfa_id).
+    /// trailing_len: -1 = no trailing context, -2 = variable-length trailing.
+    /// trailing_dfa_id: -1 unless trailing_len == -2.
+    fn accept_entries(state: usize) -> &'static [(i32, i32, i32)];
+
     fn start_state(condition: usize, bol: bool) -> usize;
     fn sink() -> usize;
 
@@ -25,16 +33,28 @@ pub trait LexerDef {
 
     fn execute_action(scanner: &mut Scanner<Self>, rule_id: i32) -> Option<i32>
     where Self: Sized;
+
+    /// Transition function for an isolated trailing-context DFA.
+    /// Returns -1 on a dead transition. Default: no trailing DFAs exist.
+    fn yytrailing_transition(_dfa_id: usize, _state: usize, _c: u8) -> i32 {
+        -1
+    }
+
+    /// Whether `state` is an accepting state in trailing DFA `dfa_id`.
+    fn yytrailing_accept(_dfa_id: usize, _state: usize) -> bool {
+        false
+    }
 }
 
-pub fn ftlex_main<D: LexerDef>() {
-    D::ftlex_main::<D>();
+pub fn ftlex_main<D: LexerDef>(user_data: D::UserData) {
+    D::ftlex_main::<D>(user_data);
 }
 
 struct Candidate {
-    rule_id:        i32,
-    match_end:      usize,
-    trailing_len:   i32,
+    rule_id:         i32,
+    match_end:       usize,
+    trailing_len:    i32,
+    trailing_dfa_id: i32,
 }
 
 pub struct Scanner<D: LexerDef> {
@@ -46,16 +66,16 @@ pub struct Scanner<D: LexerDef> {
     pub yytext:         String,
     pub yyleng:         usize,
     pub yylineno:       u32,
+    pub user_data:      D::UserData,
 
     // Internal buffer
     yybuf:              Vec<u8>,
     yybuf_pos:          usize,
-    
+
     match_start:        usize,
 
     // Automaton
     yycurrent_state:    usize,
-    yy_at_bol:          bool,
     yymore_flag:        bool,
     yymore_len:         usize,
     reject_flag:        bool,
@@ -67,18 +87,18 @@ pub struct Scanner<D: LexerDef> {
 }
 
 impl<D: LexerDef> Scanner<D> {
-    pub fn new(yyin: Box<dyn Read>, yyout: Box<dyn Write>) -> Self {
+    pub fn new(yyin: Box<dyn Read>, yyout: Box<dyn Write>, user_data: D::UserData) -> Self {
         Scanner {
             yyin,
             yyout,
             yytext:             String::new(),
             yyleng:             0,
             yylineno:           1,
+            user_data,
             yybuf:              Vec::new(),
             yybuf_pos:          0,
             match_start:        0,
             yycurrent_state:    0,
-            yy_at_bol:          true,
             yymore_flag:        false,
             yymore_len:         0,
             reject_flag:        false,
@@ -107,6 +127,35 @@ impl<D: LexerDef> Scanner<D> {
 
     pub fn reject(&mut self) {
         self.reject_flag = true;
+    }
+
+    /// Read and consume the next raw byte from the input stream, like
+    /// POSIX lex's input(). Returns -1 on EOF, otherwise the byte value.
+    pub fn input(&mut self) -> i32 {
+        match self.yyread() {
+            Some(c) => {
+                if c == b'\n' {
+                    self.yylineno += 1;
+                }
+                c as i32
+            }
+            None => -1,
+        }
+    }
+
+    /// Push a byte back into the input stream so the next input() (or
+    /// scan) call rereads it, like POSIX lex's unput().
+    pub fn unput(&mut self, c: u8) {
+        if self.yybuf_pos == 0 {
+            self.yybuf.insert(0, c);
+        } else {
+            self.yybuf_pos -= 1;
+            self.yybuf.insert(self.yybuf_pos, c);
+        }
+
+        if c == b'\n' && self.yylineno > 1 {
+            self.yylineno -= 1;
+        }
     }
 
     fn yyread(&mut self) -> Option<u8> {
@@ -138,6 +187,35 @@ impl<D: LexerDef> Scanner<D> {
         self.yyleng = self.yymore_len + len;
     }
 
+    /// Simulate an isolated trailing-context DFA over yybuf[start..end)
+    /// and return the length of the base pattern (i.e. the leftmost split
+    /// point whose suffix is fully accepted by the trailing DFA).
+    /// Mirrors the C runtime's yy_simulate_trailing: leftmost split =
+    /// longest base pattern, consistent with POSIX longest-match rules.
+    fn simulate_trailing(&self, dfa_id: i32, start: usize, end: usize) -> Option<usize> {
+        for p in start..=end {
+            let mut state = 0usize;
+            let mut pos = p;
+            let mut alive = true;
+
+            while pos < end {
+                let c = self.yybuf[pos];
+                let next = D::yytrailing_transition(dfa_id as usize, state, c);
+                if next < 0 {
+                    alive = false;
+                    break;
+                }
+                state = next as usize;
+                pos += 1;
+            }
+
+            if alive && pos == end && D::yytrailing_accept(dfa_id as usize, state) {
+                return Some(p - start);
+            }
+        }
+        None
+    }
+
     pub fn yylex(&mut self) -> i32 {
         // Reset yytext unless yymore() was requested
         if self.yymore_flag {
@@ -150,11 +228,18 @@ impl<D: LexerDef> Scanner<D> {
 
     	/* ===================================================================
 	    * Outer loop: scan and dispatch one token per iteration.
-	    * =================================================================== */  
+	    * =================================================================== */
         loop {
+            // Recomputed from the buffer every pass: a trailing '\n' left
+            // unconsumed by a previous match (e.g. via ".*") must still
+            // count as BOL for the next token, regardless of what the
+            // previous yytext looked like.
+            let yy_at_bol = self.match_start == 0
+                || self.yybuf[self.match_start - 1] == b'\n';
+
             let state = D::start_state(
                 self.yycurrent_state,
-                self.yy_at_bol,
+                yy_at_bol,
             );
 
             self.yybuf_pos = self.match_start;
@@ -162,7 +247,7 @@ impl<D: LexerDef> Scanner<D> {
 
             let mut current_state = state as i32;
             /* -----------------------------------------------------------------
-            * SCAN PHASE — drive the DFA and collect all possible candidates.      
+            * SCAN PHASE — drive the DFA and collect all possible candidates.
             * ----------------------------------------------------------------- */
             loop {
                 match self.yyread() {
@@ -197,6 +282,7 @@ impl<D: LexerDef> Scanner<D> {
                                     rule_id: entry.0,
                                     match_end: pos,
                                     trailing_len: entry.1,
+                                    trailing_dfa_id: entry.2,
                                 });
                             }
                         }
@@ -224,8 +310,14 @@ impl<D: LexerDef> Scanner<D> {
 
             for cand in candidates.iter().rev() {
                 let full_len = cand.match_end - self.match_start;
+
                 let committed_len = if cand.trailing_len >= 0 {
                     full_len - cand.trailing_len as usize
+                } else if cand.trailing_len == -2 {
+                    match self.simulate_trailing(cand.trailing_dfa_id, self.match_start, cand.match_end) {
+                        Some(len) => len,
+                        None => continue, // trailing DFA never accepted: reject this candidate
+                    }
                 } else {
                     full_len
                 };
@@ -237,25 +329,18 @@ impl<D: LexerDef> Scanner<D> {
 
                 let result = D::execute_action(self, cand.rule_id);
                 if !self.reject_flag {
-                    // Update yylineno and yy_at_bol
+                    // Update yylineno (yy_at_bol is now derived from the
+                    // buffer at the top of the outer loop, not here).
                     for i in bu_yymore_len..self.yyleng {
                         if self.yytext.as_bytes()[i] == b'\n' {
                             self.yylineno += 1;
                         }
                     }
-                    self.yy_at_bol = self.yytext
-                        .as_bytes()
-                        .last()
-                        .copied()
-                        == Some(b'\n');
 
                     rule_executed = true;
+                    self.match_start = self.yybuf_pos;
+
                     if let Some(v) = result {
-                        self.match_start = self.yybuf_pos;
-                        self.yytext.clear();
-                        self.yyleng = 0;
-                        self.yymore_len = 0;
-                        self.yymore_flag = false;
                         return v;
                     }
                     break;
@@ -269,8 +354,6 @@ impl<D: LexerDef> Scanner<D> {
                 continue;
             }
 
-            self.match_start = self.yybuf_pos;
-
             if self.yymore_flag {
                 self.yymore_len = self.yyleng;
             } else {
@@ -282,4 +365,3 @@ impl<D: LexerDef> Scanner<D> {
         }
     }
 }
-

@@ -1,0 +1,9 @@
+ab.* ret: 2 yytext: [ac]
+
+cdfg ret: 4 yytext: [cdfg]
+
+abcdefg ret: 4 yytext: [abcd]
+cdef
+ ret: 3 yytext: [efg]
+cdef
+ ret: 3 yytext: [efg]

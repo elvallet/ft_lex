@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <sstream>
 #include <algorithm>
+#include <tuple>
 
 using namespace codegen;
 
@@ -221,7 +222,7 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 	}
 
 	// ------------------------------------------------------------------------
-	// yyaccept_data[] - flat array of {rule_id, {tlen, tdfa_id}} entries.
+	// yyaccept_data[] - flat array of {rule_id, tlen, tdfa_id} entries.
 	//
 	// For each state, rules are stored by ascending rule index
 	// (index 0 = highest priority). tlen is -1 when the rule carries
@@ -230,7 +231,7 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 	// ------------------------------------------------------------------------
 	std::vector<int>	offsets(nb_states, -1);
 	std::vector<int>	counts(nb_states, 0);
-	std::vector<std::pair<int, std::pair<int, int>>>	flat;	// {rule_id, {tlen, tdfa_id}}
+	std::vector<std::tuple<int, int, int>>	flat;	// {rule_id, tlen, tdfa_id}
 
 	for (size_t s = 0; s < nb_states; s++) {
 		auto found	= dfa.final_states_.find(static_cast<int>(s));
@@ -251,7 +252,7 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 					tlen	= lexfile.rules_[rule_id].trailing_length_;
 					tdfa_id	= lexfile.rules_[rule_id].trailing_dfa_id_;
 				}
-				flat.push_back({rule_id, {tlen, tdfa_id}});
+				flat.push_back({rule_id, tlen, tdfa_id});
 		}
 	}
 
@@ -260,8 +261,8 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 		// Avoid a zero-length array (not valid C89, guard for safety).
 		oss << "\t{ -1, -1, -1}\n";
 	} else {
-		for (auto& [rid, dt] : flat) {
-			oss << "\t{ " << rid << ", " << dt.first <<  ", " << dt.second << " },\n";
+		for (auto& [rid, tlen, tdfa_id] : flat) {
+			oss << "\t{ " << rid << ", " << tlen <<  ", " << tdfa_id << " },\n";
 		}
 	}
 	oss <<"};\n";

@@ -471,6 +471,14 @@ void LexParser::parse_conditions(const string& line)
 		return;
 	}
 	
+	if (line.rfind("%rust_user_data", 0) == 0) {
+		size_t pos	= line.find_first_not_of(" \t", 15);
+		if (pos == string::npos)
+			throw ParseError("`%rust_user_data` requires a type name", reader_.context());
+		lex_file_.rust_user_data_type_ = line.substr(pos);
+		return;
+	}
+	
 	if (line[i] == 'p' || line[i] == 'n' || line[i] == 'a' || line[i] == 'e' || line[i] == 'o')
 		return;
 	if (line[i] != 's' && line[i] != 'x') throw runtime_error(string("unknown directive %") + line[i]);
