@@ -98,10 +98,10 @@ void SubsetConstruction::complete(DFA& dfa, const NFA& nfa) {
 }
 
 /**
- * @brief Compute epsilon-closure from a bitmask of NFA states.
+ * @brief Compute epsilon-closure of a set of NFA states.
  * @param nfa Source NFA.
- * @param states Input state bitmask.
- * @return Closure bitmask.
+ * @param states Set of active NFA states.
+ * @return Canonical (sorted) set of all states reachable by epsilon transitions.
  */
 SubsetConstruction::StateSet SubsetConstruction::epsilon_closure(const NFA& nfa, const StateSet& states) {
 	StateSet	res;
@@ -132,11 +132,11 @@ SubsetConstruction::StateSet SubsetConstruction::epsilon_closure(const NFA& nfa,
 }
 
 /**
- * @brief Apply one symbol move to a set of NFA states.
+ * @brief Apply one symbol transition step to a set of NFA states.
  * @param nfa Source NFA.
- * @param states Input state bitmask.
- * @param symbol Transition symbol.
- * @return Destination states bitmask.
+ * @param states Set of active NFA states.
+ * @param symbol Input symbol to consume.
+ * @return Canonical (sorted) set of destination states.
  */
 SubsetConstruction::StateSet SubsetConstruction::delta(const NFA& nfa, const StateSet& states, char symbol) {
 	StateSet	res;

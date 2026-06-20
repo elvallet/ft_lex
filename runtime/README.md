@@ -26,6 +26,8 @@ All methods are called on `scanner` inside rule actions.
 | `scanner.yyless(n)` | Push back all but the first `n` bytes of the current token |
 | `scanner.yymore()` | Append the next match to the current `yytext` instead of replacing it |
 | `scanner.reject()` | Try the next candidate rule for the current input |
+| `scanner.input()` | Read and consume the next raw byte from the input stream; returns `-1` on EOF |
+| `scanner.unput(c)` | Push a byte back into the input stream so the next `input()` (or scan) rereads it |
 
 Public fields available in actions:
 
@@ -36,6 +38,7 @@ Public fields available in actions:
 | `scanner.yylineno` | `u32` | Current line number (1-indexed) |
 | `scanner.yyin` | `Box<dyn Read>` | Input source |
 | `scanner.yyout` | `Box<dyn Write>` | Output sink |
+| `scanner.user_data` | `D::UserData` | Custom per-scanner state, typed via `%rust_user_data` in the `.l` file (defaults to `()`) |
 
 ## Implementing `LexerDef`
 
@@ -43,8 +46,10 @@ The generated file implement this trait for you. You only need to know about it 
 
 ```rust
 pub trait LexerDef {
+    type UserData;
+
     fn transition(state: usize, c: u8) -> i32;
-    fn accept_entries(state: usize) -> &'static [(i32, i32)];
+    fn accept_entries(state: usize) -> &'static [(i32, i32, i32)];
     fn start_state(condition: usize, bol: bool) -> usize;
     fn sink() -> usize;
     fn execute_action(scanner: &mut Scanner<Self>, rule_id: i32) -> Option<i32>
@@ -53,22 +58,47 @@ pub trait LexerDef {
     // Default: (stop at EOF). Override to chain input sources.
     fn yywrap(scanner: &mut Scanner<Self>) -> bool
     where Self: Sized { true }
+
+    // Only meaningful when the grammar has variable-length trailing
+    // context rules; default means "no trailing DFAs exist".
+    fn yytrailing_transition(dfa_id: usize, state: usize, c: u8) -> i32 { -1 }
+    fn yytrailing_accept(dfa_id: usize, state: usize) -> bool { false }
 }
 ```
 
 ### Overriding `yywrap`
 
-Because Rust does not support weak symbols, `yywrap` cannot be overridden by simply defining a free function. Instead, provide a second `impl` block in a separate file within the same:
+`ft_lex` detects a free function named `user_yywrap` in your `.l` file's epilogue (the code after the second `%%`) and writes it into the generated `impl` automatically - no manual `impl` block needed:
 
-```rust
-// src/custom_yywrap.rs
-impl LexerDef for GeneratedLexer {
-    fn yywrap(scanner: &mut Scanner<Self>) -> bool {
-        // your logic here
-        true
-    }
+```lexer
+%%
+[a-z]+ { scanner.echo(); return Some(1); }
+%%
+
+fn user_yywrap(scanner: &mut Scanner<GeneratedLexer>) -> bool {
+    // your logic here; return true to stop, false to keep scanning
 }
 ```
+
+### Custom per-scanner state
+
+Add `%rust_user_data <TypeName>` to a `.l` file to give the scanner a typed `user_data` field instead of `()`:
+
+```lexer
+%rust_user-data Counters
+
+%{
+pub struct Counters {
+    words: u32,
+}
+%}
+
+%%
+[a-zA-Z]+ { scanner.user_data.words += 1; return None; }
+%%
+```
+
+The named type must be defined somewhere reachable in the generated file (typically the `%{ %}` prologue). It must be defined in `pub`. A `.l` file using `%rust_user_data` needs to construct its own `Scanner` (via `Scanner::new(yyin, yyout, user_data)`) rather than relying on the default `ftlex_main`, since the latter can only construct `()`.
 
 ## Start conditions
 
@@ -90,6 +120,8 @@ Switch between them with `scanner.begin(MY_CONDITION)`.
 | `yyless(n)` macro | `scanner.yyless(n)` method |
 | `yymore()` macro | `scanner.yymore()` method |
 | `REJECT` macro | `scanner.reject()` method |
+| `input()` function | `scanner.input()` method |
+| `unput(c)` function | `scanner.unput(c)` method |
 | `char *yytext` | `String` (always owned, no `%array`/`%pointer`) |
 | `int yylineno` | `u32 yylineno` |
 | `FILE *yyin` | `Box<dyn Read>` |
@@ -98,7 +130,6 @@ Switch between them with `scanner.begin(MY_CONDITION)`.
 
 ## Known limitations
 
-- No table compression - the `-c` flag is ignored for Rust output. The full `[[i32; 256]; N]` transition table is always emitted.
+- No table compression - the `-c` flag is ignored for Rust output. The full `[[i32; 256]; N]` transition table is always emitted, for both the main DFA and any variable-length trailing-context DFAs.
 - No `%array`/`%pointer` - `yytext` is always an owned `String`.
-- No `yywrap` in the generated file - override it via a simple `impl` block as described above.
 - Action syntax is not verified - `ft_lex` treats action bodies as opaque text. Rust syntax errors in actions only surface at `cargo build` time.

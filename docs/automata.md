@@ -60,6 +60,7 @@ struct DFA {
     std::vector<std::unordered_map<char, int>> transitions_;
     std::map<std::string, int> start_states_;   // condition name -> dfa entry state
     int sink_;                                   // sink state id for invalid transitions
+    std::vector<DFA> trailing_dfas_;            // isolated DFAs for variable-length trailing context, see §9
 };
 ```
 
@@ -67,6 +68,7 @@ struct DFA {
 - `final_states_` stores a **list of matching rule indices** for each accepting state, sorted in ascending order (index 0 = highest priority).
 - `start_states_` contains entries for each condition, including BOL variants (e.g., `INITIAL`, `COMMENT`, `COMMENT_BOL`). Used by generated `BEGIN(X)` support.
 - `sink_` is the state id assigned to the sink state created during completion. All undefined transitions route to this state. The sink state loops to itself on all symbols, ensuring the scanner can gracefully handle unexpected input without crashing.
+- `trailing_dfas_` holds one standalone DFA per rule with varianle-length trailing context, indexed by `Rule::trailing_dfa_id_`. Empty when the grammar uses no variable-length trailing context. See §9.
 
 ---
 
@@ -181,7 +183,30 @@ This keeps scanner runtime logic simple (single table lookup path).
 
 ---
 
-## 9. Regex Repetitions in Parser
+## 9. Variable-Length Trailing Context DFAs
+
+In addition to the main merged DFA, `ParsingPipeline::execute` compiles one **isolated DFA per rule** whose trailing context is variable-length (`Rule::trailing_is_variable_ -- true`).
+
+For each such rule the trailing pattern alone (`Rule::trailing_`, not `pattern_ + trailing_`) is run through the same `Parser`  → `Thompson`  → `SubsetConstruction` pipeline used for the main DFA, but as a single-rule, single-condition automaton with no relation to the rest of the grammar. The rusulting DFA is appended to `dfa.trailing_dfas_`, and the originating rule's `trailing_dfa_id_` is set to its index in that vector.
+
+```cpp
+for (size_t i = 0; i < rules.size(); ++i) {
+    if (rules[i].trailing_is_variable_) {
+        NFA nfa = thompson_.compile(parser_.parse(rules[i].trailing_), i);
+        DFA dfa = subset_construction_.build(nfa, {{"INITIAL", i}});
+        trailing_dfas.push_back(dfa);
+        rules[i].trailing_dfa_id_ = count++;
+    }
+}
+```
+
+These trailing DFAs always start at state `0` (a property the runtime relies on directly, without needing a `strat_states_` lookup). They are serialized by Codegen alongside the main DFA (see `docs/codgen.md` §3.6) and simulated at runtime the base-pattern/trailing-pattern boundary for each match (see `docs/codegen.md` §4.7).
+
+This keeps fixed-length and variable-length trailing context orthogonal at the automata leel: fixed-length trailing is folded directly into the main DFA path (`pattern_` + `trailing_` compiled together, see `compile_trailing_length()` in `docs/lexer_file_parser.md`), while variable-length trailing gets its own dedicated automaton resolved dynamically.
+
+---
+
+## 10. Regex Repetitions in Parser
 
 `Parser::tokenize_and_insert_concat` supports brace-based repetitions by rewriting them into existing unary operators and explicit concatenations.
 

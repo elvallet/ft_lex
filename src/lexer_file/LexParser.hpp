@@ -1,3 +1,7 @@
+/**
+ * @file LexParser.hpp
+ * @brief Parser for lex/flex-like source files.
+ */
 #pragma once
 
 #include "LexFile.hpp"
@@ -44,6 +48,7 @@ private:
 	std::vector<std::string>			extract_conditions(const std::string& line, size_t* i);
 	/** @brief Split a raw rule into `<pattern, action>`. */
 	std::pair<std::string, std::string>	split_pattern_action(const std::string& raw);
+	/** @brief Split a pattern string at the first unescaped `/` or `$`, returning `<pattern, trailing>`. */
 	std::pair<std::string, std::string>	detect_trailing(const std::string& pattern);
 	/** @brief Continue reading lines until an action block is syntactically closed. */
 	std::string							complete_action(const std::string& partial);
@@ -65,6 +70,14 @@ private:
 	void expand_macros();
 	/** @brief Expand macros in rule patterns and reject unresolved macro-like tokens. */
 	void expand_rules();
+	/**
+	 * @brief Compute trailing-context lengths for all rules after macro expansion.
+	 *
+	 * For each rule with a non-empty `trailing_` field, attempts to determine a
+	 * fixed length by analyzing the trailing postfix token stream. If the length
+	 * is variable (e.g., alternation with unequal branches), `trailing_is_variable_`
+	 * is set and a separate DFA is built for runtime simulation.
+	 */
 	void compile_trailing_length();
 
 	/** Streaming line reader with lookahead support. */

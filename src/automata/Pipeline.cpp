@@ -50,7 +50,7 @@ void ParsingPipeline::print_stats()
 			<< "    compression factor: " << factor << "x (" << saved_percent << "%)" << std::endl;
 		std::cerr.unsetf(std::ios::floatfield);
 	} else {
-		std::cerr << "    compression: non activée" << std::endl;
+		std::cerr << "    compression: disabled" << std::endl;
 	}
 	std::cerr << "  Output" << std::endl;
 	std::cerr << "    file: " << (stats_.output_file.empty() ? "(stdout)" : stats_.output_file) << std::endl;
@@ -152,6 +152,11 @@ DFA ParsingPipeline::execute(
 	return dfa;
 }
 
+/**
+ * @brief Merge NFA groups for each start condition into one shared NFA.
+ * @param groups Pairs of `<condition_name, list of NFAs active in that condition>`.
+ * @return Merged NFA and per-condition entry state ids.
+ */
 pair<NFA, map<string, int>> ParsingPipeline::merge_keyed(const vector<pair<string, vector<NFA>>>& groups)
 {
 	NFA	merged;
@@ -200,6 +205,11 @@ pair<NFA, map<string, int>> ParsingPipeline::merge_keyed(const vector<pair<strin
 	return {merged, entry_points};
 }
 
+/**
+ * @brief Merge multiple per-rule NFAs into one NFA under a fresh common start state.
+ * @param nfas Compiled NFAs, one per rule.
+ * @return Merged NFA where state 0 is the shared entry point.
+ */
 NFA ParsingPipeline::merge(const vector<NFA>& nfas)
 {
 	if (nfas.empty())

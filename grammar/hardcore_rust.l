@@ -5,7 +5,7 @@
 DEFINE def*i?ne
 
 %{
-struct FileList {
+pub struct FileList {
     files: Vec<String>,
     index: usize,
 }

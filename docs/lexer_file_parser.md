@@ -67,7 +67,9 @@ Macros are stored as `vector` to preserve declaration order, which is semantical
 | `pattern_` | `string` | The regex pattern, fully macro-expanded |
 | `trailing_` | `string` | Trailing-context regex (for `r/s`), fully macro-expanded |
 | `action_` | `string` | The C action block, including surrounding braces |
-| `trailing_length_` | `int` | Fixed length of `trailing_` used by codegen (`-1` when absent) |
+| `trailing_length_` | `int` | Length of `trailing_` used by codegen (`-1` when absent, `>= 0` when fixed, `-2` when variable-length) |
+| `trailing_is_variable_` | `bool` | `true` when the trailing context has statically computable fixed length |
+| `trailing_dfa_id_` | `int` | Index into the isolated trailing-DFA tables (only meaningful when `trailing_is_variable_` is `true`; `-1` otherwise) |
 | `is_pipe_` | `bool` | `true` if the original action was a pipe (`\|`) |
 | `is_bol_` | `bool` | `true` if the rule pattern begins with `^` anchor |
 
@@ -152,13 +154,12 @@ Rules may use trailing context with the lex form `pattern/trailing`.
 
 `detect_trailing()` scans the pattern while honoring escapes, string literals, and character classes, so `/` is treated as a separator only when it is not escaped and not inside `[...]` or `"..."`.
 
-Current limitation: only fixed-length trailing contexts are supported.
+Both fixed-length and varaible-length trailing contexts are supported:
 
-- Unsupported in trailing part: `*`, `+`, `?`
-- Unsupported when alternation yields different lengths
-- Unsupported variable quantifiers such as `{n,}`
+- **Fixed-length** (`r/abc`, `r/[0-9]{3}`): `compile_trailing_length()` parses `trailing_` with the regex parser and computes a deterministic character length, stored in `Rule::trailing_length_` and consumed directly by code generation (`committed_len = full_len - trailing_length_`).
+- **Variable-length** (`r/s*`, `r/s+`, `r/s{n,}`, or any pattern where alternation branches yield different lengths): length computation throws `TrailingIsVariableException`, which `compile_trailing_length()` catches to set `Rule::trailing_is_variable_ = true` and `Rule::trailing_length_ = -2`. The trailing pattern is later compiled into its own isolated DFA by the automata pipeline (`Rule::trailing_dfa_id_` records which one), and the boundary between the base pattern and the trailing part is resolved at runtime by simulating that DFA over the matched input. See `docs/automata.md` and `docs/codegen.md` §3.6/§4.7 for the full mechanism.
 
-`compile_trailing_length()` parses `trailing_` with the regex parser, then computes a deterministic character length. This value is stored in `Rule::trailing_length_` and consumed by code generation.
+`compile_trailing_length()` parses `trailing_` with the regex parser, then computes a deterministic character length when possible; it falls back to the variable-length path otherwise. This value is stored in `Rule::trailing_length_` and consumed by code generation.
 
 ---
 
@@ -224,4 +225,3 @@ Detected errors include:
 | Pipe as last rule | `Last rule cannot be pipe` |
 | Undefined macro | `Undefined macro in pattern` |
 | Invalid trailing context | `invalid trailing context` |
-| Variable-length trailing context | `variable-length trailing context is not supported` |

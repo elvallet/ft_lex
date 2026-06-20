@@ -1,3 +1,10 @@
+/**
+ * @file main.c
+ * @brief Default main() for ft_lex-generated scanners linked against -lfl.
+ *
+ * Declared weak so user-defined main() functions silently override it.
+ * Opens the file named on the command line (or stdin) and runs yylex() until EOF.
+ */
 #include <stdio.h>
 
 extern int yylex(void);

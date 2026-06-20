@@ -1,6 +1,18 @@
+//! Runtime support library for ft_lex-generated Rust scanners.
+//!
+//! Generated scanners implement the [`LexerDef`] trait and drive the
+//! [`Scanner`] engine, which manages the input buffer, DFA simulation,
+//! candidate tracking, and action dispatch.
+
 use std::marker::PhantomData;
 use std::io::{Read, Write};
 
+/// Interface that every ft_lex-generated scanner must implement.
+///
+/// The code generator produces a `GeneratedLexer` struct that implements this
+/// trait. Methods like `transition`, `accept_entries`, and `execute_action`
+/// are filled in from the DFA tables and rule actions; default implementations
+/// are provided for `yywrap`, `yytrailing_transition`, and `yytrailing_accept`.
 pub trait LexerDef {
     type UserData;
 
@@ -50,43 +62,55 @@ pub fn ftlex_main<D: LexerDef>(user_data: D::UserData) {
     D::ftlex_main::<D>(user_data);
 }
 
+/// A rule match candidate recorded during the DFA scan phase.
 struct Candidate {
     rule_id:         i32,
+    /// Buffer position immediately after the last consumed character.
     match_end:       usize,
+    /// Fixed trailing length (≥ 0), -1 for no trailing context, -2 for variable.
     trailing_len:    i32,
+    /// Index into the trailing DFA array; -1 unless `trailing_len == -2`.
     trailing_dfa_id: i32,
 }
 
+/// Lexer engine that drives an ft_lex-generated [`LexerDef`] implementation.
+///
+/// Each call to [`yylex`](Scanner::yylex) scans one token: it drives the DFA,
+/// collects match candidates, selects the highest-priority one respecting
+/// trailing context, and dispatches the user action.
 pub struct Scanner<D: LexerDef> {
     // I/O
     pub yyin:           Box<dyn Read>,
     pub yyout:          Box<dyn Write>,
 
-    // Public state
+    // Public state visible from user actions
     pub yytext:         String,
     pub yyleng:         usize,
     pub yylineno:       u32,
     pub user_data:      D::UserData,
 
-    // Internal buffer
+    // Internal input buffer
     yybuf:              Vec<u8>,
     yybuf_pos:          usize,
 
+    /// Buffer index of the start of the current match attempt.
     match_start:        usize,
 
-    // Automaton
+    // Automaton state
     yycurrent_state:    usize,
     yymore_flag:        bool,
+    /// Length already committed by a preceding `yymore()` call.
     yymore_len:         usize,
     reject_flag:        bool,
 
-    // Candidates
+    // Rule candidates collected during the scan phase
     candidates:         Vec<Candidate>,
 
     _phantom:           PhantomData<D>,
 }
 
 impl<D: LexerDef> Scanner<D> {
+    /// Create a new scanner bound to the given I/O streams and user data.
     pub fn new(yyin: Box<dyn Read>, yyout: Box<dyn Write>, user_data: D::UserData) -> Self {
         Scanner {
             yyin,
@@ -107,24 +131,29 @@ impl<D: LexerDef> Scanner<D> {
         }
     }
 
+    /// Write `yytext` to `yyout`, like flex's `ECHO`.
     pub fn echo(&mut self) {
         let _ = self.yyout.write_all(self.yytext.as_bytes());
     }
 
+    /// Switch to start condition `condition` for the next token.
     pub fn begin(&mut self, condition: usize) {
         self.yycurrent_state = condition;
     }
 
+    /// Truncate the current match to `n` bytes and rewind the input accordingly.
     pub fn yyless(&mut self, n: usize) {
         self.yytext.truncate(n);
         self.yyleng = n;
         self.yybuf_pos = self.match_start + n;
     }
 
+    /// Request that the next token be appended to the current `yytext`.
     pub fn yymore(&mut self) {
         self.yymore_flag = true;
     }
 
+    /// Skip the current rule and try the next lower-priority candidate.
     pub fn reject(&mut self) {
         self.reject_flag = true;
     }
@@ -158,6 +187,7 @@ impl<D: LexerDef> Scanner<D> {
         }
     }
 
+    /// Pull the next byte from the internal buffer, or from `yyin` when the buffer is exhausted.
     fn yyread(&mut self) -> Option<u8> {
         if self.yybuf_pos < self.yybuf.len() {
             let c = self.yybuf[self.yybuf_pos];
@@ -176,6 +206,7 @@ impl<D: LexerDef> Scanner<D> {
         }
     }
 
+    /// Set `yytext` and `yyleng` from `yybuf[start..start+len]`, prepending any `yymore` prefix.
     fn assign_yytext(&mut self, start: usize, len: usize) {
         let slice = &self.yybuf[start..start + len];
         if self.yymore_len > 0 {

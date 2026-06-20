@@ -16,8 +16,8 @@ impl LexerDef for MyLexer {
 
     fn accept_entries(state: usize) -> &'static [(i32, i32)] {
         match state {
-            1 => &[(0, -1)],  // règle 0 = WORD,   pas de trailing context
-            2 => &[(1, -1)],  // règle 1 = NUMBER, pas de trailing context
+            1 => &[(0, -1)],  // rule 0 = WORD,   no trailing context
+            2 => &[(1, -1)],  // rule 1 = NUMBER, no trailing context
             _ => &[],
         }
     }

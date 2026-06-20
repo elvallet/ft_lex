@@ -69,6 +69,13 @@ string& trim(string& s, const char* t)
 	return (ltrim(rtrim(s, t), t));
 }
 
+/**
+ * @brief Determine the fixed character length of a trailing-context regex in postfix form.
+ * @param postfix Postfix token stream of the trailing expression.
+ * @return Fixed length in characters.
+ * @throw TrailingIsVariableException If the regex contains variable-length constructs.
+ * @throw std::runtime_error If the token stream is malformed.
+ */
 int compute_fixed_length(const vector<Token>& postfix)
 {
 	vector<int> lengths;
@@ -209,6 +216,12 @@ pair<string, string> LexParser::split_pattern_action(const std::string& raw)
 	return {pattern, trim(action, " \t\n\r\f\v") };
 }
 
+/**
+ * @brief Locate a trailing-context separator (`/` or `$`) in a raw pattern string.
+ * @param raw Pattern string as read from the lexer file.
+ * @return Pair `<base_pattern, trailing_regex>`. If no separator is found the
+ *         trailing part is empty. A `$` anchor expands to an implicit `\n` trailing.
+ */
 pair<string, string> LexParser::detect_trailing(const string& raw)
 {
 	if (raw.empty())
@@ -458,6 +471,13 @@ void LexParser::parse_definitions()
 	}
 }
 
+/**
+ * @brief Parse a `%`-directive from the definitions section.
+ *
+ * Handles `%s`/`%x` start-condition declarations, `%array`, `%pointer`,
+ * and the custom `%rust_user_data` directive. Silently ignores unknown
+ * single-letter option directives (`%n`, `%p`, etc.) for compatibility.
+ */
 void LexParser::parse_conditions(const string& line)
 {
 	bool	excl;

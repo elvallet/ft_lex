@@ -31,9 +31,12 @@ public:
 	 */
 	DFA execute(std::vector<lexer_file::Rule>& rules, const std::map<std::string, bool>& conditions);
 
+	/** @brief Access mutable pipeline statistics. */
 	Stats& stats();
+	/** @brief Access read-only pipeline statistics. */
 	const Stats& stats() const;
 
+	/** @brief Print a human-readable statistics summary to stderr. */
 	void print_stats();
 
 private:

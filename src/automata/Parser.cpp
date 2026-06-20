@@ -14,12 +14,14 @@ using namespace automata; using namespace std;
 namespace {
 	char translate_escape_sequence(const string& regex, size_t& pos);
 
+	/** @brief Set bit `c` in `allowed`, validating the ASCII range. */
 	void add_ascii_char(bitset<128>& allowed, int c) {
 		if (c < 0 || c > 127)
 			throw runtime_error("Character class only supports ASCII characters");
 		allowed.set(static_cast<size_t>(c));
 	}
 
+	/** @brief Enable all characters of a POSIX named class in `allowed`. */
 	void add_named_class(bitset<128>& allowed, const string& name) {
 		if (name == "alpha") {
 			for (int c = 'a'; c <= 'z'; ++c) add_ascii_char(allowed, c);
@@ -64,6 +66,12 @@ namespace {
 		}
 	}
 
+	/**
+	 * @brief Parse one atom inside `[...]`: a single char, escape, or POSIX named class.
+	 * @param regex Full regex string.
+	 * @param pos Cursor (updated past the consumed atom).
+	 * @return List of ASCII code points matched by the atom.
+	 */
 	vector<int> parse_char_class_atom(const string& regex, size_t& pos) {
 		if (pos >= regex.size())
 			throw runtime_error("Unclosed character class");
@@ -104,6 +112,7 @@ namespace {
 		return {static_cast<unsigned char>(regex[pos++])};
 	}
 
+	/** @brief Wrap an ASCII bitset into a single CHARCLASS token. */
 	vector<Token> build_char_class_tokens(const bitset<128>& allowed) {
 		if (allowed.none())
 			throw runtime_error("Empty character class");
@@ -111,6 +120,7 @@ namespace {
 		return {Token(CHARCLASS, allowed)};
 	}
 
+	/** @brief Build a CHARCLASS token matching any character except newline (`.`). */
 	vector<Token> build_wildcard_tokens() {
 		bitset<128> allowed;
 		allowed.set();
@@ -118,6 +128,12 @@ namespace {
 		return build_char_class_tokens(allowed);
 	}
 
+	/**
+	 * @brief Decode one escape sequence starting at `pos` (the char after `\`).
+	 * @param regex Full regex string.
+	 * @param pos Cursor positioned on the first character after the backslash (updated past escape).
+	 * @return Decoded byte value.
+	 */
 	char translate_escape_sequence(const string& regex, size_t& pos) {
 		if (pos >= regex.size())
 			throw runtime_error("Invalid escape sequence: trailing '\\'");
@@ -158,6 +174,12 @@ namespace {
 		return it->second;
 	}
 
+	/**
+	 * @brief Parse a `[...]` character class starting at `*i` (the `[` position).
+	 * @param regex Full regex string.
+	 * @param i Cursor (updated to the `]` position; caller should skip past it).
+	 * @return Single CHARCLASS token for the parsed class.
+	 */
 	vector<Token> parse_char_class(const string& regex, size_t* i) {
 		bitset<128> allowed;
 		size_t pos = *i + 1;
@@ -221,6 +243,12 @@ namespace {
 		return build_char_class_tokens(allowed);
 	}
 
+	/**
+	 * @brief Extract the last atom or group from a token stream, skipping trailing quantifiers.
+	 *
+	 * Used to resolve the operand of a `{n,m}` bounded repetition. Returns either
+	 * the last CHAR/CHARCLASS token or the outermost matching `(...)` group.
+	 */
 	vector<Token> get_last_fragment(const vector<Token>& v)
 	{
 		vector<Token>	res;
@@ -386,8 +414,8 @@ vector<Token> Parser::tokenize_and_insert_concat(const string& regex) {
 }
 
 /**
- * @brief Convert infix tokens to postfix notation.
- * @param infi Infix token stream.
+ * @brief Convert infix tokens to postfix notation using the shunting-yard algorithm.
+ * @param infix Infix token stream.
  * @return Postfix token stream.
  */
 vector<Token> Parser::shunting_yard(const vector<Token>& infix) {

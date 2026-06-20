@@ -1,3 +1,7 @@
+/**
+ * @file LexFile.hpp
+ * @brief In-memory representation of a parsed lex/flex specification file.
+ */
 #pragma once
 
 #include <string>
@@ -7,6 +11,12 @@
 
 namespace lexer_file {
 
+/**
+ * @brief Thrown by trailing-context analysis when the trailing regex is variable-length.
+ *
+ * Variable-length trailing context requires a separate DFA simulation at runtime
+ * instead of a simple `yyless()` rewind.
+ */
 class TrailingIsVariableException: public std::exception {
 public:
 	TrailingIsVariableException() {}
@@ -30,7 +40,9 @@ struct Rule {
 	std::string					action_;
 	/** Fixed trailing length used by codegen for `yyless(yyleng - n)`. */
 	int							trailing_length_;
+	/** True when the trailing context regex has variable length (requires DFA simulation). */
 	bool						trailing_is_variable_ = false;
+	/** Index into `DFA::trailing_dfas_` for variable-length trailing context; -1 otherwise. */
 	int							trailing_dfa_id_	= -1;
 	/**
 	 * @brief True when the rule action is the pipe operator (`|`).
@@ -38,6 +50,7 @@ struct Rule {
 	 * Pipe rules inherit the action of the next non-pipe rule.
 	 */
 	bool		is_pipe_;
+	/** True when the pattern is anchored to the beginning of a line (`^`). */
 	bool		is_bol_;
 };
 
@@ -56,9 +69,12 @@ struct LexFile {
 	/** Verbatim/indented lines inside the rules section. */
 	std::vector<std::string>							verbatim_rules_;
 	/** Declared start conditions: key=name, value=true for `%x`, false for `%s`. */
-	std::map<std::string, bool>							conditions_;	// true if exclusive (%x) false if inclusive (%s)
+	std::map<std::string, bool>							conditions_;
+	/** True when `%array` is declared; yytext is then a `char[]` instead of `char*`. */
 	bool												array_mode_				= false;
+	/** True when `-c` flag or `%compress` enables packed transition tables. */
 	bool												compression_			= false;
+	/** Rust user-data type declared via `%rust_user_data`; defaults to `()`. */
 	std::string											rust_user_data_type_	= "()";
 };
 

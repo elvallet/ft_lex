@@ -66,13 +66,13 @@ static int yystart_states[] = {
 };
 ```
 
-`BEGIN(X)` in the runtime template does:
+`BEGIN` in the runtime template is **not** a function-like macro:
 
 ```c
-#define BEGIN(x) (yycurrent_state = yystart_states[(x)])
+#define BEGIN yycurrent_state =
 ```
 
-So user code switches condition by selecting the corresponding DFA start state. BOL variants are automatically managed by the runtime when a newline is matched.
+This unusual form accepts both classic lex syntaxes interchangeably: `BEGIN(COMMENT);` expands to `yycurrent_state = (COMMENT);`, and the historical bare form `BEGIN COMMENT;` expands to `yycurrent_state = COMMENT;` - both compile, since the macro is a plain token substitution rather than a parameterized expansion. BOL variants are automatically managed by the runtime when a newline is matched.
 
 ### 3.2 Transition table — `yytable`
 
@@ -98,12 +98,14 @@ The accepting states are stored across three complementary tables to support mul
 typedef struct {
     int rule_id;
     int trailing_len;
+    int trailing_dfa_id;
 } YYAcceptEntry;
 
 static YYAcceptEntry yyaccept_data[] = {
-    { 0, -1 },   // rule 0, no trailing
-    { 2, 3 },    // rule 2, trailing length 3
-    { 1, -1 },   // rule 1, no trailing
+    { 0, -1, -1 },   // rule 0, no trailing
+    { 2, 3, -1 },    // rule 2, trailing length 3
+    { 1, -1, -1 },   // rule 1, no trailing
+    { 4, -2, 0 },    // rule 4, variable-length trailing, simulated via trailing DFA 0
     // ...
 };
 
@@ -119,7 +121,13 @@ static int yyaccept_count[NB_STATES] = { 1, 2, 1, 0, ... };
 
 **Rule ordering:** Rules within each state are stored in **ascending index order** (index 0 = highest priority). The runtime pushes them onto a stack in reverse order so the highest-priority rule ends up on top.
 
-**Trailing context:** `trailing_len` is set from `Rule::trailing_length_` if the rule has trailing context (non-empty `Rule::trailing_`), or `-1` otherwise. The runtime uses this to call `yyless()` before executing the action.
+**Trailing context:** `trailing_len` is set from `Rule::trailing_length_` if the rule has trailing context (non-empty `Rule::trailing_`), and is one of three states:
+
+- `-1` - no trailing context
+- `>= 0` - fixed trailing length; the runtime computes `comitted_len = full_len - trailing_len` directly
+- `-2` - variable-length trailing context (e.g. `r/s+`, `r/s*`); `trailing_dfa_id` then indexes into a separate, isolated DFA (see §3.6) that the runtime simulates at match time to find the committed length
+
+`trailing_dfa_id` is `-1` unless `trailing_len == -2`.
 
 ### 3.4 Prerequisite: contiguous state numbering
 
@@ -169,6 +177,25 @@ state 0, char 'a' (97): check[0 + 97] = 0 ✓ → next_state = yynext[0 + 97] = 
 state 0, char 'x' (120): check[0 + 120] = -1 ✗ → invalid
 state 1, char 'b' (98): check[256 + 98] = 1 ✓ → next_state = yynext[256 + 98] = 3
 ```
+
+### 3.6 Variable-length trailing context DFAs
+
+When a rule's trailing part is not statically fixed-length (e.g. it contains `*`, `+`, `?`, or a `{n,}` / `{n,m}` quantifier with varying width), Codegen compiles the trailing pattern **in isolation** through the same pipeline used for the main DFA (`Parser` → `Thompson` → `SubsetConstruction`), producing a small standalone DFA per variable-trailing rule.
+
+These trailing DFAs are emitted as their own set of tables, indexed by `trailing_dfa_id`:
+
+```c
+static int yytrailing_0_table[N][256]   = { ... };    // or base/check/next if compressed
+static int yytrailing_0_accept[N]       = {0, 1, 0, ... };
+
+static int (*yytrailing_tables[])[256]  = { yytrailiong_0_table, ... };
+static int *yy_trailing_accepts[]       = { yytrailing_0_accept, ... };
+static int yytrailing_sizes[]           = { N, ... };
+```
+
+At dispatch time, the runtime calls `yy_simulate_trailing(dfa_id, match_start, match_end)`, which drives the indexed trailing DFA from the start of the full match and returns the length of the **longest** trailing suffix accepted - consistent with POSIX longest-match semantics. See §4.7 for the full algorithm.
+
+If the trailing DFA never reaches an accepting state for any split point, the candidate is treated as a non-match and the dispatch phase moves on to the next candidate (see §4.4).
 
 ---
 
@@ -278,7 +305,8 @@ The DFA is driven forward, reading characters until it blocks (no transition). D
 typedef struct {
     int rule_id;
     size_t match_end;     // absolute position just past the match
-    int trailing_len;     // -1 if no trailing context
+    int trailing_len;     // -1 none, >= 0 fixed, -2 variable
+    int trailing_dfa_id;  // -1 unless trailing_len == -2  
 } YYCandidate;
 
 static YYCandidate yycandidates[YYCAND_MAX];
@@ -290,10 +318,12 @@ Rules are pushed into the array in **reverse priority order** (lowest index firs
 **Dispatch Phase:**
 After the DFA blocks, the candidates are examined from top to bottom (highest priority first):
 
-- For each candidate, `committed_len = match_end - trailing_len` (or full match if no trailing)
+- For each candidate, `committed_len` is resolved according to its trailing kind (fixed, variable, or none - see §4.7)
 - `yytext` and `yyleng` are set to the committed portion
 - `yybuf_pos` is set to just after the committed portion, effectively pushing the trailing characters back into the input
+- `match_start` is committed to this new position **before** the rule action runs, not after - so a `return` statement inside the user action (which exits `yylex()` immediately) never skips the bookkeeping. Earlier revisions committed `match_start` only after the `switch`, which left the scanner stuck replaying the same token whenever an action returned directly.
 - The rule action is executed; if it contains `REJECT`, the loop continues to the next candidate
+- `REJECT` expands to `goto yy_try_next_candidate;` rather than setting a flag checked after the fact - this matters because of `return` statement can appear on the same line after `REJECT;` in user code (e.g. `REJECT; return yyleng;`), and the `goto` fires before that `return` is ever reached, exactly like flex's own `find_rule:` label mechanism. A flag tested only after the `switch` block would never be reached in that case, since the `return` exits the whole function first
 
 ```txt
 Scan phase:
@@ -305,27 +335,37 @@ Scan phase:
     state = yytable[state][c]
     if state is accepting:
         for each rule in yyaccept_data[yyaccept_offset[state]]..+yyaccept_count[state]:
-            push {rule_id, yybuf_pos, trailing_len} onto yycandidates[] (reverse priority order)
+            push {rule_id, yybuf_pos, trailing_len, trailing_dfa_id} onto yycandidates[] (reverse priority order)
 
 Dispatch phase:
   if yyncandidates == 0:
       ECHO one character
       continue outer loop
+  base_start = match_start     // frozen reference for this whole dispatch pass
   for ci = yyncandidates - 1 down to 0:  // iterate from top (highest priority)
       candidate = yycandidates[ci]
-      committed_len = (candidate.trailing_len >= 0) ? 
-          (candidate.match_end - match_start - candidate.trailing_len) : 
-          (candidate.match_end - match_start)
-      yy_assign_yytext(match_start, committed_len)
-      yybuf_pos = match_start + committed_len  // push back trailing chars
-      save yylineno, yy_at_bol
-      update yylineno (count '\n' in yytext), update yy_at_bol
+      if candidate.trailing_len >= 0:
+        committed_len = candidate.match_end - base_start - candidate.trailing_len
+      else if candidate.trailing_len == -2:
+        committed_len = yy_simulate_trailing(candidate.trailing_dfa_id, base_start, candidate.match-end)
+        if committed_len == (size_t)-1: continue    // trailing DFA never accepted, try next candidate
+      else:
+        committed_len = candidate.match-end - base_start
+      yy_assign_yytext(base_start, committed_len)
+      yybuf_pos = base_start + committed_len  // push back trailing chars
+      save yylineno
+      match_start = yybuf_pos                 // committed before the action runs
+      #define REJECT goto yy_try_next_candidate
       switch (candidate.rule_id):
           case 0: { user action 0 } break;
           case 1: { user action 1 } break;
           ...
-      if action did not REJECT: break
-      restore yylineno, yy_at_bol // undo before next candidate
+      #undef REJECT
+      rule_executed = true
+      break
+  yy_try_next_candidate:
+      match_start = base_start                // undo the commit, retry with the next candidate
+      restore yylineno
 ```
 
 This approach naturally supports backtracking without explicit state management: trailing characters remain in the buffer and will be reconsumed by the next token match.
@@ -346,11 +386,13 @@ if (!initialized) {
 
 This ensures `yycurrent_state` is explicitly set, even though multiple start conditions may exist. The `yystart_states[]` array includes DFA entries for all conditions and their BOL variants.
 
-**BOL handling:** before executing a rule action, the scanner updates `yy_at_bol` (alongside `yylineno`) so the action observes the correct state:
+**BOL handling:** `yy_at_bol` is recomputed from the buffer at the **start of every outer loop iteration**, not derived from the previous match's `yytext`:
 
 ```c
-yy_at_bol = (yyleng > 0 && yytext[yyleng - 1] == '\n');
+yy_at_bol = (match_start == 0) || (yybuf[match_start - 1] == '\n');
 ```
+
+This matters because a rule can match a text that does **not** end on the newline that precedes the next token - for example a `.`-based pattern that stops just short of a trailing `\n` left in the buffer. Deriving `yy_at_bol` from `yytext[yyleng - 1]` (the last character of the *previous* match) would miss this: the `\n` is sitting in the buffer, unconsumed, and the next token genuinely starts at beginning-of-line even though the prior match didn't end in `\n`. Recomputing from `yybuf[match_start - 1]` instead asks the buffer directly, which is always accurate regardless of what the previous rule happened to consume.
 
 At the start of the next token scan, the DFA entry is chosen based on this flag:
 
@@ -381,26 +423,54 @@ Lifetime rules:
 
 For rules with trailing context, the automata side matches `r` followed by `s` as one DFA path. At dispatch time, generated code trims the matched suffix `s` from `yytext` and rewinds the input cursor so the trailing part can be rescanned by subsequent rules.
 
-When a candidate is selected for dispatch:
+**Fixed-length trailing**. When `trailing_len >= 0`, the committed length is computed directly:
 
 ```c
-size_t full_len = cand->match_end - match_start;
-size_t committed_len = (cand->trailing_len >= 0)
-    ? full_len - (size_t)cand->trailing_len
-    : full_len;
-yy_assign_yytext(match_start, committed_len);
-yybuf_pos = match_start + committed_len;  // push back trailing chars
+size_t full_len = cand->match_end - base_start;
+size_t committed_len = full_len - (size_t)cand->trailing_len;
+yy_assign_yytext(base_start, committed_len);
+yybuf_pos = base_start + committed_len;  // push back trailing chars
 ```
 
-**How it works:**
+**Variable-length trailing**. When `trailing_len == -2`, the boundary between the base pattern and the trailing part isn't known until runtime, because the trailing regex itself has no fixed width (e.g. `r/s*`, `r/s+`). The generated scanner resolves it by simulating the isolated DFA (see §3.6) ove the matched region:
+
+```c
+static size_t yy_simulate_trailing(int dfa_id, size_t start, size_t end)
+{
+    int size            = yytrailing_sizes[dfa_id];
+    int *accept         = yytrailing_accepts[dfa_id];
+    int (*table)[256]   = yytrailing_tables[dfa_id];
+
+    /* Try each split point left-to-right: the leftmost split that lets
+     * the trailing DFA fully consume the rest of the match gives the
+     * longest possible base pattern - consistent with POSIX longest match. */
+    for (size_t p = start; p <= end; p++) {
+        int state = 0;
+        size_t pos = p;
+        while (pos < end) {
+            int next = table[state][(unsigned char)yybuf[pos]];
+            if (next == -1) break;
+            state = next;
+            pos++;
+        }
+        if (pos == end && state < size && accept[state])
+            return p - start;    // base pattern length
+    }
+    return (size_t)-1;   // trailing DFA never accepted any split
+}
+```
+
+If no split point lets the trailing DFA fully consum the remainder, the candidate is not viable - the dispatch phase treats this the same as a `REJECT` and moves to the next candidate without running the action (see §4.4).
+
+**How it works (both cases):**
 
 - `cand->match_end` is the position just past the full match (pattern + trailing)
-- `cand->trailing_len` is from `yyaccept_data[]` (set to -1 if no trailing)
+- `cand->trailing_len` selects the strategy: `-1` none, `>=0` fixed, `-2` variable (resolved via `yy_simulate_trailing`)
 - `committed_len = full_len - trailing_len` (or full match if trailing_len == -1)
 - `yytext` and `yyleng` are set to the committed portion
 - `yybuf_pos` is moved back so the trailing characters remain unconsumed
 
-This reproduces lex trailing-context behavior for fixed-length trailing expressions. The runtime does not call `yyless()` explicitly; instead, it manages buffer positions directly.
+This reproduces lex trailing-context behavior for both fixed-length and variable-length trailing expressions. The runtime does not call `yyless()` explicitly; instead, it manages buffer positions directly.
 
 ---
 
@@ -414,7 +484,6 @@ This reproduces lex trailing-context behavior for fixed-length trailing expressi
 | `yyleng` | `size_t` | Length of the last matched token |
 | `yybuf` | `char*` | Internal input buffer for lookahead |
 | `yycurrent_state` | `int` | Current start condition state (set by `BEGIN()`) |
-| `yy_at_bol` | `int` | Flag indicating beginning-of-line (for BOL anchor rules) |
 
 ---
 

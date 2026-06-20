@@ -29,6 +29,7 @@ struct DFA {
 	 */
 	std::map<std::string, int>					start_states_;
 
+	/** @brief Isolated DFAs for variable-length trailing context, indexed by `Rule::trailing_dfa_id_`. */
 	std::vector<DFA>							trailing_dfas_;
 	/** @brief Sink state id for invalid/undefined transitions.
 	 *  Created during DFA completion; loops to itself on all symbols.

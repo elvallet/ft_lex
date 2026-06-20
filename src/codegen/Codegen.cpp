@@ -280,6 +280,10 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 	}
 	oss << " };\n";
 
+	// ------------------------------------------------------------------------
+	// Per-DFA tables for variable-length trailing context (one set per entry
+	// in DFA::trailing_dfas_).
+	// ------------------------------------------------------------------------
 	for (size_t i = 0; i < dfa.trailing_dfas_.size(); ++i) {
 		auto	dfa_curr	= dfa.trailing_dfas_[i];
 		size_t	size_curr	= dfa_curr.transitions_.size();
@@ -330,6 +334,7 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 		oss << " };\n";
 	}
 
+	// Pointer arrays indexed by trailing_dfa_id, used by the runtime dispatcher.
 	size_t nb_trailing = dfa.trailing_dfas_.size();
 
 	oss << "static int (*yytrailing_tables[])[256] = {";

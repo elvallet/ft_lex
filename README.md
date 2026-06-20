@@ -11,9 +11,9 @@ A complete reimplementation of the POSIX `lex` lexical analyzer generator, built
 - Start conditions: inclusive `%s` and exclusive `%x`
 - BOL anchor `^` with per-condition dual DFA entry points
 - EOL anchor `$` via trailing context
-- Fixed-length trailing context `r/s`
+- Trailing context `r/s`, fixed-length or variable-length (isolated DFA simulated at runtime)
 - `yytext` in pointer mode (default, heap-allocated) or array mode (`%array`)
-- Runtime macros: `BEGIN()`, `REJECT`, `yymore()`, `yyless()`, `ECHO`
+- Runtime macros: `BEGIN()`, `REJECT`, `yymore()`, `yyless()`, `ECHO`, `input()`, `unput()`
 - Pipe rules (`|` as action)
 - Verbatim C blocks (`%{ %}`, indented lines in rules sections, user code section)
 - Optional DFA table compression (`-c` flag)
@@ -44,14 +44,17 @@ The build produces two independent artefacts:
 ### Generating a scanner
 
 ```sh
-./ft_lex input.l      # produces lex.yy.c
-./ft_lex input.l -c   # produces lex.yy.c with compressed DFA tables
+./ft_lex input.l       # produces lex.yy.c
+./ft_lex -c input.l    # produces lex.yy.c with compressed DFA tables
+./ft_lex -v input.l    # verbose mode, displays statistics
 ```
 
 ### Compiling the generated scanner
 
 ```sh
 cc lex.yy.c -o scanner -L libl/ -ll
+#  or
+make scan GRAMMAR=path/to/input.l
 ```
 
 ---
@@ -64,7 +67,7 @@ The pipeline transforms a `.l` file into a C scanner through five sequential sta
 .l file
    └─ LexParser                                    - tokenizes sections, expands macros, extracts rules
         └─ Thompson                                - build one NFA fragment per rule (tagged with rule index)
-            └─ ParsingPipeline                     - groups by start condition, merges into one NFA
+            └─ ParsingPipeline                     - groups by start condition, merges into one NFA, compiles variable-trailing DFAs
                     └─ SubsetConstruction          - determinizes into a DFA, assigns start states
                             └─ Codegen             - serializes DFA + actions into lex.yy.c
 ```
@@ -80,7 +83,7 @@ Each stage is documented in detail under `/docs`.
 `ft_lex` can generate a Rust scanner instead of a C scanner via the `--rust` flag:
 
 ```sh
-./ft_lex input.l --rust    # produces lex.yy.rs
+./ft_lex --rust input.l    # produces lex.yy.rs
 ```
 
 The generated file contains only DFA tables and action dispatch. The scanner engine lives in a companion runtime crate (`ftlex_runtime`) that must be added as a dependency to your Cargo project:
@@ -107,12 +110,6 @@ See [`docs/rust_backend.md`](docs/rust_backend.md) for the full architecture and
 
 When the `-c` flag is passed, the dense transition table is replaced with a compressed `base` / `check` / `next` representation - approximately 25-35% of the original size with a modest runtime cost per lookup.
 See [`docs/codegen.md`](docs/codegen.md)  §3.5 and  §7 for the algorithm and size tradeoffs.
-
----
-
-## Known Limitations
-
-**Variable-length trailing context.** The `r/s` operator is supported only when the trailing part `s` has a fixed, statically computable length. Patterns like `foo/bar+` (variable-length trailing) are rejected at parse time with an explicit error.
 
 ---
 

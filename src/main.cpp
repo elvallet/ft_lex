@@ -1,3 +1,7 @@
+/**
+ * @file main.cpp
+ * @brief ft_lex entry point: parse CLI arguments and drive the compilation pipeline.
+ */
 #include <exception>
 #include <iostream>
 #include <string>
@@ -8,15 +12,23 @@
 #include "codegen/CodegenRust.hpp"
 #include "lexer_file/LexParser.hpp"
 
+/** @brief Parsed command-line options. */
 struct Arguments
 {
+	/** @brief Path to the input `.l` lexer specification file. */
 	std::string	input_file;
+	/** @brief Path to the generated output file (empty when writing to stdout). */
 	std::string	output_file;
+	/** @brief Write output to a file (true) or to stdout (false). */
 	bool		output_to_file	= true;
+	/** @brief Enable packed (compressed) transition tables (`-c`). */
 	bool		compression		= false;
+	/** @brief Generate Rust output via `CodegenRust` (`--rust`). */
 	bool		backend_rust	= false;
+	/** @brief Print statistics to stderr after compilation (`-v`). */
 	bool		verbose			= false;
 	bool		silent			= true;
+	/** @brief True when `--help` was passed; causes immediate exit after usage. */
 	bool		help			= false;
 };
 
@@ -27,8 +39,8 @@ static void print_usage(const std::string &prog_name)
 	std::cerr << "  -n     : disable stats (default)" << std::endl;
 	std::cerr << "  -t     : output to stdout instead of file" << std::endl;
 	std::cerr << "  -c     : activate compression mode" << std::endl;
-	std::cerr << "  --rust : generate output in Rust (lex.yy.rs by default)" << std::endl;
-	std::cerr << "           cannot be used with compression mode and cannot output to stdout" << std::endl;
+	std::cerr << "  --rust : generate output in Rust (lex.yy.rs)" << std::endl;
+	std::cerr << "           cannot be used with compression mode and always write on `lex.yy.rs`." << std::endl;
 }
 
 static Arguments parse_arguments(int argc, char **argv)

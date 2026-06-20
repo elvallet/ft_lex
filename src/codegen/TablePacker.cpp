@@ -74,7 +74,7 @@ TablePacker::build_profile(const std::unordered_map<char, int>& row, int sink_st
 		// Cast to unsigned char so that values are always in [0, 255].
 		p.emplace_back(static_cast<unsigned char>(c), dst);
 	}
-	// Sort by characetr value for deterministic placement.
+	// Sort by character value for deterministic placement.
 	std::sort(p.begin(), p.end());
 	return p;
 }

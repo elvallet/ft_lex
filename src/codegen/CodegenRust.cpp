@@ -5,6 +5,14 @@
 
 using namespace codegen;
 
+/**
+ * @brief Generate the full Rust scanner source by assembling all sections.
+ * @param dfa Deterministic automaton.
+ * @param lexfile Parsed lexer file.
+ * @param out Output stream.
+ * @param stats Optional statistics struct (updated in place).
+ * @return Number of bytes written to @p out.
+ */
 size_t CodegenRust::generate(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostream& out, automata::Stats* stats)
 {
 	std::ostringstream	oss;
@@ -23,6 +31,9 @@ size_t CodegenRust::generate(const automata::DFA& dfa, const lexer_file::LexFile
 	return generated.size();
 }
 
+/**
+ * @brief Emit `use` imports and the top verbatim block from the lexer file.
+ */
 void CodegenRust::write_prologue(const lexer_file::LexFile& lexfile, std::ostringstream& oss)
 {
 	oss << "use ftlex_runtime::{LexerDef, Scanner};" << std::endl;
@@ -31,6 +42,13 @@ void CodegenRust::write_prologue(const lexer_file::LexFile& lexfile, std::ostrin
 	oss << lexfile.verbatim_top_ << std::endl;
 }
 
+/**
+ * @brief Emit start-condition constants, transition table, and accept tables as Rust statics.
+ * @param dfa Deterministic automaton.
+ * @param lexfile Parsed lexer file (provides rule trailing info).
+ * @param oss Output string stream being assembled.
+ * @param stats Optional statistics struct updated with raw table size.
+ */
 void CodegenRust::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostringstream& oss, automata::Stats* stats)
 {
 	const size_t	nb_states	= dfa.transitions_.size();
@@ -163,6 +181,13 @@ void CodegenRust::write_tables(const automata::DFA& dfa, const lexer_file::LexFi
 	}
 }
 
+/**
+ * @brief Emit the `GeneratedLexer` struct and its `LexerDef` trait implementation.
+ *
+ * Generates `transition()`, `accept_entries()`, `start_state()`, `sink()`,
+ * and `execute_action()`. Optional trailing-context methods are only emitted
+ * when the DFA contains variable-length trailing context DFAs.
+ */
 void CodegenRust::write_generated_lexer(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::ostringstream& oss)
 {
 	oss << "pub struct GeneratedLexer;\n\n";
@@ -232,6 +257,9 @@ void CodegenRust::write_generated_lexer(const automata::DFA& dfa, const lexer_fi
 	oss << "}\n\n";
 }
 
+/**
+ * @brief Emit the bottom verbatim block and a default `fn main` when not user-provided.
+ */
 void CodegenRust::write_epilogue(const lexer_file::LexFile& lexfile, std::ostringstream& oss)
 {
 	oss << lexfile.verbatim_bottom_ << std::endl;
