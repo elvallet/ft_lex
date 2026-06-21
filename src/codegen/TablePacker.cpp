@@ -59,13 +59,45 @@ PackedTables TablePacker::pack(const std::vector<std::unordered_map<char, int>>&
 	return PackedTables{ base_, next_, check_, def };
 }
 
+PackedTables TablePacker::pack_profiles(const std::vector<Profile>& profiles)
+{
+	const size_t	nb_states	= profiles.size();
+
+	// Initialize member tables.
+	low_water_	= 0;
+	base_.assign(nb_states, -1);
+	next_.assign(256, -1);
+	check_.assign(256, -1);
+
+	// 1. Sort states by descending profile size (densest first).
+	std::vector<int>	order(nb_states);
+	std::iota(order.begin(), order.end(), 0);
+	std::sort(order.begin(), order.end(), [&](int a, int b) {
+		return profiles[a].size() > profiles[b].size();
+	});
+
+	// 2. Place each state.
+	for (int s : order) {
+		if (profiles[s].empty()) {
+			// State with no outgoing transitions: no slots needed, offset 0 is fine.
+			base_[s] = 0;
+			continue;
+		}
+		int offset	= find_offset(profiles[s]);
+		place(s, offset, profiles[s]);
+	}
+
+	// 3. def_ defaults to -1 for every state. The default[]-chain caller
+	//	  is expected to overwrite it afterwards.
+	std::vector<int>	def(nb_states, -1);
+
+	return PackedTables{ base_, next_, check_, def };
+}
 
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
-
-TablePacker::Profile
-TablePacker::build_profile(const std::unordered_map<char, int>& row, int sink_state) const
+Profile TablePacker::build_profile(const std::unordered_map<char, int>& row, int sink_state) const
 {
 	Profile p;
 	p.reserve(row.size());

@@ -1,0 +1,34 @@
+#include "TablePacker.hpp"
+#include "DenseRows.hpp"
+
+using namespace codegen;
+
+
+/**
+ * @brief Build a diff-only Profile per state, relative to its default[] parent.
+ * 
+ * The root (parent == -1) is diffed against an implicit "all -1" row --
+ * i.e. it keeps every non-sink transition, exactly like the legacy
+ * build_profile() used without default[]. Non-root state keep only the
+ * symbols where they disagree with their parent, sink (-1) included.
+ */
+std::vector<Profile>	build_diff_profiles(const DenseRows& dense, const std::vector<int>& parent)
+{
+	std::vector<Profile>	profils(dense.rows.size());
+
+	for (size_t s = 0; s < dense.rows.size(); ++s) {
+		int			p		= parent[s];
+		Profile&	profile	= profils[s];
+
+		for (size_t col = 0; col < dense.symbols.size(); ++col) {
+			int		dest	= dense.rows[s][col];
+			bool	keep	= (p == -1) ? (dest != -1)
+										: (dest != dense.rows[p][col]);
+										
+			if (keep)
+				profile.emplace_back(static_cast<unsigned char>(dense.symbols[col], dest));
+		}
+	}
+
+	return profils;
+}

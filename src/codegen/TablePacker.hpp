@@ -5,6 +5,9 @@
 
 namespace codegen {
 
+/// Ordered list of (unsigned_char_value, destination) for one state.
+using Profile = std::vector<std::pair<int, int>>;
+
 /**
  * @brief Packed DFA transition tables for compressed scanner output.
  * 
@@ -38,9 +41,21 @@ public:
 	 */
 	PackedTables	pack(const std::vector<std::unordered_map<char, int>>& transitions, int sink_state);
 
+	/**
+	 * @brief Place already-built profiles directly, skipping build_profile().
+	 * 
+	 * Used by the default[]-chain path: profiles here are diffs against a
+	 * parent state (see DiffProfileBuilder), not raw sink-filtered rows.
+	 * def_ in the returned PackedTables is left at -1 for every state --
+	 * the caller is expected to overwrite it with the default[] parent
+	 * chain (e.g. DefaultChainBuilder's output) when applicable.
+	 * 
+	 * @param profiles One profile per state, indexed by state id.
+	 * @return PackedTables ready for codegen serialisation.
+	 */
+	PackedTables	pack_profiles(const std::vector<Profile>& profiles);
+
 private:
-	/// Ordered list of (unsigned_char_value, destination) for one state.
-	using Profile = std::vector<std::pair<int, int>>;
 
 	/// Build the profile of a single state, casting chars to unsigned.
 	Profile	build_profile(const std::unordered_map<char, int>& row, int sink_state) const;
