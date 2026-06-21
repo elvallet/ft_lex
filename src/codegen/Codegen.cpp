@@ -7,7 +7,9 @@
 #include <stdexcept>
 #include <sstream>
 #include <algorithm>
+#include <numeric>
 #include <tuple>
+#include <unordered_set>
 
 using namespace codegen;
 
@@ -189,6 +191,13 @@ void Codegen::emit_transition_table(std::ostringstream& oss, const automata::DFA
 			stats->table_size_packed	= tables.next_.size() + tables.check_.size() + tables.base_.size() + tables.def_.size();
 			stats->compression_ratio	= stats->table_size_raw == 0 ? 0.0f
 				: static_cast<float>(stats->table_size_packed) / static_cast<float>(stats->table_size_raw);
+			stats->comp_base_size		= tables.base_.size();
+			stats->comp_next_size		= tables.next_.size();
+			stats->comp_empty_entries	= static_cast<size_t>(
+				std::count(tables.next_.begin(), tables.next_.end(), -1));
+			std::unordered_set<int> protos;
+			for (int p : tables.def_) if (p >= 0) protos.insert(p);
+			stats->comp_prototype_states = static_cast<int>(protos.size());
 		}
 
 		emit_int_array(oss, table_root + "base", tables.base_);

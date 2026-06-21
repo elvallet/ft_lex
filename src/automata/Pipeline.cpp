@@ -33,9 +33,17 @@ void ParsingPipeline::print_stats()
 	std::cerr << "    start conditions: " << stats_.start_conditions_count << std::endl;
 	std::cerr << "  NFA" << std::endl;
 	std::cerr << "    states: " << stats_.nfa_states << std::endl;
+	std::cerr << "    epsilon states: " << stats_.nfa_epsilon_states
+	          << " / epsilon transitions: " << stats_.nfa_epsilon_transitions << std::endl;
+	std::cerr << "    accepting states: " << stats_.nfa_final_states << std::endl;
 	std::cerr << "  DFA" << std::endl;
-	std::cerr << "    states: " << stats_.dfa_states << std::endl;
-	std::cerr << "    sink states: " << stats_.dfa_sink_states << std::endl;
+	std::cerr << "    states: " << stats_.dfa_states;
+	if (stats_.dfa_sink_states > 0)
+		std::cerr << " (including " << stats_.dfa_sink_states << " sink)";
+	std::cerr << std::endl;
+	std::cerr << "    accepting states: " << stats_.dfa_final_states << std::endl;
+	std::cerr << "    alphabet size: " << stats_.dfa_alphabet_size << std::endl;
+	std::cerr << "    transitions: " << stats_.dfa_transitions << std::endl;
 	std::cerr << "  Tables" << std::endl;
 	std::cerr << "    raw size: " << stats_.table_size_raw << std::endl;
 	std::cerr << "    packed size: " << stats_.table_size_packed << std::endl;
@@ -49,6 +57,10 @@ void ParsingPipeline::print_stats()
 		std::cerr << std::fixed << std::setprecision(3)
 			<< "    compression factor: " << factor << "x (" << saved_percent << "%)" << std::endl;
 		std::cerr.unsetf(std::ios::floatfield);
+		std::cerr << "      base/def: " << stats_.comp_base_size << " entries each" << std::endl;
+		std::cerr << "      next/check: " << stats_.comp_next_size << " entries each" << std::endl;
+		std::cerr << "      empty slots: " << stats_.comp_empty_entries << std::endl;
+		std::cerr << "      prototype states: " << stats_.comp_prototype_states << std::endl;
 	} else {
 		std::cerr << "    compression: disabled" << std::endl;
 	}
@@ -141,12 +153,30 @@ DFA ParsingPipeline::execute(
 
 	auto [global_nfa, nfa_entry_points]	= merge_keyed(groups);
 	stats_.nfa_states = static_cast<int>(global_nfa.transitions_.size());
+	stats_.nfa_epsilon_states = 0;
+	stats_.nfa_epsilon_transitions = 0;
+	for (auto& eps : global_nfa.epsilon_transitions_) {
+		if (!eps.empty()) {
+			++stats_.nfa_epsilon_states;
+			stats_.nfa_epsilon_transitions += static_cast<int>(eps.size());
+		}
+	}
+	stats_.nfa_final_states = static_cast<int>(global_nfa.final_states_.size());
 
 	DFA	dfa	= subset_construction_.build(global_nfa, nfa_entry_points);
 	subset_construction_.complete(dfa, global_nfa);
 	stats_.dfa_states = static_cast<int>(dfa.transitions_.size());
 	stats_.dfa_sink_states = dfa.sink_ >= 0 ? 1 : 0;
 	stats_.table_size_raw = static_cast<size_t>(stats_.dfa_states) * 256;
+	stats_.dfa_final_states = static_cast<int>(dfa.final_states_.size());
+	stats_.dfa_alphabet_size = static_cast<int>(global_nfa.alphabet_.size());
+	stats_.dfa_transitions = 0;
+	for (auto& row : dfa.transitions_) {
+		for (auto& [c, dest] : row) {
+			if (dest != dfa.sink_)
+				++stats_.dfa_transitions;
+		}
+	}
 	dfa.trailing_dfas_ = trailing_dfas;
 
 	return dfa;

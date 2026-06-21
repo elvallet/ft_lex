@@ -75,7 +75,7 @@ echo ""
 
 FT_FULL=$(bytes_of  $BINARY "$LEXER" -t)
 FT_COMP=$(bytes_of  $BINARY "$LEXER" -t -c)
-FT_STATS=$($BINARY "$LEXER" -cv 2>/dev/null)
+FT_STATS=$($BINARY "$LEXER" -cv 2>&1 >/dev/null)
 
 HAS_FLEX=false
 if command -v flex &>/dev/null; then
