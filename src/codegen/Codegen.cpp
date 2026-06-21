@@ -186,7 +186,7 @@ void Codegen::emit_transition_table(std::ostringstream& oss, const automata::DFA
 
 		if (stats) {
 			stats->table_size_raw		= nb_states * 256;
-			stats->table_size_packed	= tables.next_.size();
+			stats->table_size_packed	= tables.next_.size() + tables.check_.size() + tables.base_.size() + tables.def_.size();
 			stats->compression_ratio	= stats->table_size_raw == 0 ? 0.0f
 				: static_cast<float>(stats->table_size_packed) / static_cast<float>(stats->table_size_raw);
 		}
@@ -344,13 +344,30 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 	// Pointer arrays indexed by trailing_dfa_id, used by the runtime dispatcher.
 	size_t nb_trailing = dfa.trailing_dfas_.size();
 
-	oss << "static int (*yytrailing_tables[])[256] = {";
-	for (size_t s = 0; s < nb_trailing; ++s) {
-		oss << (s == 0 ? " " : ", ")
-			<< "yytrailing_" << s << "_table";
+	if (lexfile.compression_) {
+		auto emit_ptr_array = [&](const std::string& name, const std::string& suffix) {
+			oss << "static int *" << name << "[] = {";
+			for (size_t s = 0; s < nb_trailing; ++s) {
+				oss << (s == 0 ? " " : ", ")
+					<< "yytrailing_" << s << "_" << suffix;
+			}
+			if (!nb_trailing) oss << " NULL ";
+			oss << "};\n";
+		};
+		emit_ptr_array("yytrailing_bases",    "base");
+		emit_ptr_array("yytrailing_checks",   "check");
+		emit_ptr_array("yytrailing_nexts",    "next");
+		emit_ptr_array("yytrailing_defaults", "default");
+	} else {
+		oss << "static int (*yytrailing_tables[])[256] = {";
+		for (size_t s = 0; s < nb_trailing; ++s) {
+			oss << (s == 0 ? " " : ", ")
+				<< "yytrailing_" << s << "_table";
+		}
+		if (!nb_trailing) oss << " NULL ";
+		oss << "};\n";
 	}
-	if (!nb_trailing) oss << " NULL ";
-	oss << "};\n";
+
 
 	oss << "static int *yytrailing_accepts[] = {";
 	for (size_t s = 0; s < nb_trailing; ++s) {
@@ -360,13 +377,13 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 	if (!nb_trailing) oss << " NULL ";
 	oss << "};\n";
 
-	oss << "static int yytrailing_sizes[] = {";
-	for (size_t s = 0; s < nb_trailing; ++s) {
-		oss << (s == 0 ? " " : ", ")
-			<< dfa.trailing_dfas_[s].transitions_.size();
-	}
-	if (!nb_trailing) oss << -1;
-	oss << "};\n";
+	std::vector<int> trailing_sizes;
+	for (size_t s = 0; s < nb_trailing; ++s)
+		trailing_sizes.push_back(static_cast<int>(dfa.trailing_dfas_[s].transitions_.size()));
+	if (!nb_trailing)
+		trailing_sizes.push_back(-1);
+	emit_int_array(oss, "yytrailing_sizes", trailing_sizes);
+
 
 	replace_all(tmpl, "@@TABLES@@", oss.str());
 }

@@ -34,10 +34,6 @@ bytes_of() {
     "$@" 2>/dev/null | wc -c
 }
 
-lines_of() {
-    "$@" 2>/dev/null | wc -l
-}
-
 ratio() {
     local base=$1
     local comp=$2
@@ -57,6 +53,17 @@ bar() {
     printf "${RST}"
 }
 
+fmt_bytes() {
+    local b=$1
+    awk "BEGIN { printf \"%d KB\", $b / 1024 }"
+}
+
+# Pull one "label: value" line out of `ft_lex -cv` stats output.
+stat_field() {
+    local label="$1"
+    echo "$FT_STATS" | grep "$label" | sed -E 's/^[[:space:]]*[a-z ]+: //'
+}
+
 # ─── Run measurements ─────────────────────────────────────────────────────────
 
 echo ""
@@ -68,6 +75,7 @@ echo ""
 
 FT_FULL=$(bytes_of  $BINARY "$LEXER" -t)
 FT_COMP=$(bytes_of  $BINARY "$LEXER" -t -c)
+FT_STATS=$($BINARY "$LEXER" -cv 2>/dev/null)
 
 HAS_FLEX=false
 if command -v flex &>/dev/null; then
@@ -78,12 +86,7 @@ fi
 
 MAX=$FT_FULL
 
-# ─── Display ──────────────────────────────────────────────────────────────────
-
-fmt_bytes() {
-    local b=$1
-    awk "BEGIN { printf \"%d KB\", $b / 1024 }"
-}
+# ─── Display: generated file size (includes fixed runtime boilerplate) ───────
 
 echo -e "  ${BLD}ft_lex — uncompressed${RST}"
 echo -e "  $(bar $FT_FULL $MAX)  $(fmt_bytes $FT_FULL)  ${DIM}(${FT_FULL} bytes)${RST}"
@@ -93,7 +96,8 @@ echo -e "  $(bar $FT_COMP $MAX)  $(fmt_bytes $FT_COMP)  ${DIM}(${FT_COMP} bytes)
 echo ""
 
 FT_RATIO=$(ratio $FT_FULL $FT_COMP)
-echo -e "  ${BLD}compression ratio :${RST} ${GRN}${BLD}×${FT_RATIO}${RST}"
+echo -e "  ${BLD}file-size compression ratio :${RST} ${GRN}${BLD}×${FT_RATIO}${RST}"
+echo -e "  ${DIM}(includes the fixed runtime boilerplate -- diluted on small lexers)${RST}"
 echo ""
 
 if $HAS_FLEX; then
@@ -106,13 +110,32 @@ if $HAS_FLEX; then
     echo -e "  $(bar $FL_COMP $MAX)  $(fmt_bytes $FL_COMP)  ${DIM}(${FL_COMP} bytes)${RST}"
     echo ""
     FL_RATIO=$(ratio $FL_FULL $FL_COMP)
-    echo -e "  ${BLD}flex ratio :${RST}        ${BLU}×${FL_RATIO}${RST}  ${DIM}(uses default-chain on top of packing)${RST}"
+    echo -e "  ${BLD}flex file-size ratio :${RST}        ${BLU}×${FL_RATIO}${RST}"
+    echo ""
+fi
+
+# ─── Display: table-only stats (the actual compression metric, no boilerplate) ─
+
+RAW_ENTRIES=$(stat_field "raw size")
+PACKED_ENTRIES=$(stat_field "packed size")
+TABLE_FACTOR=$(stat_field "compression factor")
+DFA_STATES=$(echo "$FT_STATS" | grep -A2 "^  DFA" | grep -E "^[[:space:]]+states:" | sed -E 's/^[[:space:]]*states: //')
+
+if [ -n "$RAW_ENTRIES" ] && [ -n "$PACKED_ENTRIES" ]; then
+    echo -e "  ${DIM}────────────────────────────────────────────────────${RST}"
+    echo ""
+    echo -e "  ${BLD}table-only compression (no boilerplate, the real metric)${RST}"
+    echo -e "  ${DIM}DFA states: ${DFA_STATES}${RST}"
+    echo ""
+    echo -e "  raw table entries     : ${RAW_ENTRIES}"
+    echo -e "  packed table entries  : ${PACKED_ENTRIES}  ${DIM}(next[]/check[] size)${RST}"
+    echo -e "  ${BLD}table compression factor :${RST} ${GRN}${BLD}${TABLE_FACTOR}${RST}"
     echo ""
 fi
 
 echo -e "  ${DIM}────────────────────────────────────────────────────${RST}"
 echo ""
-echo -e "  ${DIM}algorithm : row displacement packing (Dragon Book §3.9)${RST}"
-echo -e "  ${DIM}tables    : yy_base[] / yy_next[] / yy_check[]${RST}"
-echo -e "  ${DIM}note      : flex adds default-chain compression on top${RST}"
+echo -e "  ${DIM}algorithm : row displacement packing + default[] chain (Dragon Book §3.9)${RST}"
+echo -e "  ${DIM}tables    : yy_base[] / yy_next[] / yy_check[] / yy_default[]${RST}"
+echo -e "  ${DIM}default[] : max-spanning-tree over state similarity, diff-only profiles packed${RST}"
 echo ""
