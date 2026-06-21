@@ -1,10 +1,10 @@
 #include "DenseRows.hpp"
 #include <algorithm>
 
-using namespace codegen;
 using namespace std;
-
-DenseRows codegen::build_dense_rows(const vector<unordered_map<char, int>>& transitions, int sink)
+namespace codegen {
+	
+DenseRows build_dense_rows(const vector<unordered_map<char, int>>& transitions, int sink)
 {
 	DenseRows		ds;
 
@@ -38,3 +38,5 @@ DenseRows codegen::build_dense_rows(const vector<unordered_map<char, int>>& tran
 
 	return ds;
 }
+
+} //namespace codegen
