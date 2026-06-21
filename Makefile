@@ -13,19 +13,20 @@ GRAMMAR		?=
  
 # --- Sources ---
 SRCDIR		:= src/
-FILES		:=	automata/Parser.cpp							\
-				automata/Pipeline.cpp						\
-				automata/SubsetConstruction.cpp				\
-				automata/Thompson.cpp						\
-				codegen/Codegen.cpp							\
-				codegen/CodegenRust.cpp						\
-				codegen/compression/DefaultChainBuilder.cpp	\
-				codegen/compression/DenseRows.cpp			\
-				codegen/compression/DiffProfileBuilder.cpp	\
-				codegen/compression/TablePacker.cpp			\
-				lexer_file/LexParser.cpp					\
-				lexer_file/LineReader.cpp					\
-				lexer_file/ParseError.cpp					\
+FILES		:=	automata/Parser.cpp								\
+				automata/Pipeline.cpp							\
+				automata/SubsetConstruction.cpp					\
+				automata/Thompson.cpp							\
+				codegen/Codegen.cpp								\
+				codegen/CodegenRust.cpp							\
+				codegen/compression/DefaultChainBuilder.cpp		\
+				codegen/compression/DenseRows.cpp				\
+				codegen/compression/DiffProfileBuilder.cpp		\
+				codegen/compression/EquivalenceClassBuilder.cpp	\
+				codegen/compression/TablePacker.cpp				\
+				lexer_file/LexParser.cpp						\
+				lexer_file/LineReader.cpp						\
+				lexer_file/ParseError.cpp						\
 				main.cpp
  
 SRCS		:= $(addprefix $(SRCDIR), $(FILES))

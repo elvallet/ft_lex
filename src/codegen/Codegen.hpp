@@ -14,6 +14,19 @@
 namespace codegen {
 
 /**
+ * @brief Output of the full compression pipeline for one DFA.
+ *
+ * tables and class_of are serialised together by emit_transition_table()
+ * under the same name prefix -- "{root}base/check/next/default" plus
+ * "{root}class" for the 256-entry symbol-to-equivalence-class table. 
+ */
+struct CompressedDFA {
+	PackedTables		tables;
+	std::vector<int>	class_of;	///< class_of[256], full byte range
+};
+
+
+/**
  * @brief Generates the final scanner C source from lexer data and DFA tables.
  */
 class Codegen {
@@ -59,9 +72,11 @@ private:
 	 * @param transitions Per-state transition map (post DFA completion).
 	 * @param sink Sink state id, or -1 if the DFA needed none.
 	 * @param initial_state Root of the default[] spanning tree.
-	 * @return Packed tables, def_ populated with the default[] chain.
+	 * @return Packed tables (def_ populated with the default[] chain) plus
+	 * 		   the 256-entry class_of[] table the runtime needs to translate
+	 * 		   a raw byte into its equivalence class before every lookup.
 	 */
-	PackedTables	compress(const std::vector<std::unordered_map<char, int>>& transitions, int sink, int initial_state) const;
+	CompressedDFA compress(const std::vector<std::unordered_map<char, int>>& transitions, int sink, int initial_state) const;
 
 	/**
 	 * @brief Emit one DFA's transition table -- compressed or dense depending

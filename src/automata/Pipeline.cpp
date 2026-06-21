@@ -104,6 +104,7 @@ DFA ParsingPipeline::execute(
 			NFA nfa = thompson_.compile(parser_.parse(rules[i].trailing_), i);
 			SubsetConstruction sc;
 			DFA dfa = sc.build(nfa, {{"INITIAL", nfa.initial_state_}});
+			sc.complete(dfa, nfa);
 			trailing_dfas.push_back(dfa);
 			rules[i].trailing_dfa_id_ = count++;
 		}

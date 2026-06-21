@@ -2,6 +2,7 @@
 #include "compression/DenseRows.hpp"
 #include "compression/DefaultChainBuilder.hpp"
 #include "compression/DiffProfileBuilder.hpp"
+#include "compression/EquivalenceClassBuilder.hpp"
 #include "yylex_template.h"
 #include <iostream>
 #include <stdexcept>
@@ -154,25 +155,33 @@ void Codegen::write_prologue(const lexer_file::LexFile& lexfile, std::string& tm
 }
 
 /**
- * @brief Run dense-rows -> default[]-chain -> diff-profiles -> packing.
+ * @brief Run dense-rows -> equivalence-classes -> default[]-chain ->
+ *  	  diff-profiles -> packing.
  * 
- * See DenseRows.hpp / DefaultChainBuilder.hpp / DiffProfileBuilder.hpp for
- * each stage. 
+ * default[] is built on the REDUCED rows (post equivalence-classing): the
+ * spanning tree compares states over fewer, wider-meaning columns, and the
+ * profiles it produces are stored using class ids as their symbol
+ * space -- the runtime translates a raw byte through class_of[] before
+ * ever touching base[]/check[]/next[]/default[].
+ * 
+ * See DenseRows.hpp / EquivalenceClassBuilder.hpp / DefaultChainBuilder.hpp / 
+ * DiffProfileBuilder.hpp for each stage. 
  */
-PackedTables Codegen::compress(const std::vector<std::unordered_map<char, int>>& transitions, int sink, int initial_state) const
+CompressedDFA Codegen::compress(const std::vector<std::unordered_map<char, int>>& transitions, int sink, int initial_state) const
 {
-	DenseRows	dense	= build_dense_rows(transitions, sink);
+	DenseRows			dense	= build_dense_rows(transitions, sink);
+	EquivalenceClasses	eq		= build_equivalence_classes(dense);
 
-	DefaultChainBuilder	builder(dense.rows, dense.rows.size());
+	DefaultChainBuilder	builder(eq.reduced.rows, eq.reduced.rows.size());
 	std::vector<int>	parent	= builder.prim(initial_state);
 
-	std::vector<Profile>	diffs	= build_diff_profiles(dense, parent);
+	std::vector<Profile>	diffs	= build_diff_profiles(eq.reduced, parent);
 
 	TablePacker	tp;
 	PackedTables	tables	= tp.pack_profiles(diffs);
 	tables.def_	= std::move(parent);
 
-	return tables;
+	return CompressedDFA { std::move(tables), std::move(eq.class_of) };
 }
 
 /**
@@ -184,26 +193,35 @@ void Codegen::emit_transition_table(std::ostringstream& oss, const automata::DFA
 	const size_t	nb_states	= dfa.transitions_.size();
 
 	if (compression) {
-		PackedTables	tables	= compress(dfa.transitions_, dfa.sink_, dfa.initial_state_);
+		CompressedDFA	result	= compress(dfa.transitions_, dfa.sink_, dfa.initial_state_);
 
 		if (stats) {
+			// Full footprint of the compressed representation: every
+			// array the runtime actually needs to resolve a transition.
+			size_t	packed_total	= result.tables.base_.size()
+				+ result.tables.check_.size()
+				+ result.tables.next_.size()
+				+ result.tables.def_.size()
+				+ result.class_of.size();
+
 			stats->table_size_raw		= nb_states * 256;
-			stats->table_size_packed	= tables.next_.size() + tables.check_.size() + tables.base_.size() + tables.def_.size();
+			stats->table_size_packed	= packed_total;
 			stats->compression_ratio	= stats->table_size_raw == 0 ? 0.0f
 				: static_cast<float>(stats->table_size_packed) / static_cast<float>(stats->table_size_raw);
-			stats->comp_base_size		= tables.base_.size();
-			stats->comp_next_size		= tables.next_.size();
+			stats->comp_base_size		= result.tables.base_.size();
+			stats->comp_next_size		= result.tables.next_.size();
 			stats->comp_empty_entries	= static_cast<size_t>(
-				std::count(tables.next_.begin(), tables.next_.end(), -1));
+				std::count(result.tables.next_.begin(), result.tables.next_.end(), -1));
 			std::unordered_set<int> protos;
-			for (int p : tables.def_) if (p >= 0) protos.insert(p);
+			for (int p : result.tables.def_) if (p >= 0) protos.insert(p);
 			stats->comp_prototype_states = static_cast<int>(protos.size());
 		}
 
-		emit_int_array(oss, table_root + "base", tables.base_);
-		emit_int_array(oss, table_root + "check", tables.check_);
-		emit_int_array(oss, table_root + "next", tables.next_);
-		emit_int_array(oss, table_root + "default", tables.def_);
+		emit_int_array(oss, table_root + "base", result.tables.base_);
+		emit_int_array(oss, table_root + "check", result.tables.check_);
+		emit_int_array(oss, table_root + "next", result.tables.next_);
+		emit_int_array(oss, table_root + "default", result.tables.def_);
+		emit_int_array(oss, table_root + "class", result.class_of);
 	} else {
 		emit_dense_table(oss, table_root + "table", dfa.transitions_);
 
