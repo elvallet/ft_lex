@@ -17,7 +17,7 @@ std::vector<Profile>	build_diff_profiles(const DenseRows& dense, const std::vect
 										: (dest != dense.rows[p][col]);
 										
 			if (keep)
-				profile.emplace_back(static_cast<unsigned char>(dense.symbols[col], dest));
+				profile.emplace_back(static_cast<unsigned char>(dense.symbols[col]), dest);
 		}
 	}
 

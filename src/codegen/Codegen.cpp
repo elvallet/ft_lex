@@ -1,5 +1,7 @@
 #include "Codegen.hpp"
-#include "TablePacker.hpp"
+#include "compression/DenseRows.hpp"
+#include "compression/DefaultChainBuilder.hpp"
+#include "compression/DiffProfileBuilder.hpp"
 #include "yylex_template.h"
 #include <iostream>
 #include <stdexcept>
@@ -69,6 +71,42 @@ std::string build_rules_switch(const lexer_file::LexFile& lexfile)
 	return out;
 }
 
+/**
+ * @brief Emit "static int {name}[] = { v0, v1, ... };". 
+ * 
+ * Used for every flat int array in the generated tables -- start states,
+ * packed table arrays, accept offsets/counts, trailing size -- so the
+ * comma-joining logic exists in exactly one place.
+ */
+void emit_int_array(std::ostringstream& oss, const std::string& name, const std::vector<int>& values)
+{
+	oss << "static int " << name << "[] = {";
+	for (size_t i = 0; i < values.size(); ++i)
+		oss << (i == 0 ? " " : ", ") << values[i];
+	oss << " };\n";
+}
+
+/**
+ * @brief Emit "static int {name}[S][256] = { {...}, ... };" from a sparse
+ * 		  per-state transition map.
+ */
+void emit_dense_table(std::ostringstream& oss, const std::string& name,
+	const std::vector<std::unordered_map<char, int>>& transitions)
+{
+	oss << "static int " << name << "[" << transitions.size() << "][256] = {\n";
+	for (size_t s = 0; s < transitions.size(); ++s) {
+		oss << "\t{";
+		for (int c = 0; c < 256; c++) {
+			auto it = transitions[s].find(static_cast<char>(c));
+			oss << (c == 0 ? " " : ", ")
+				<< (it != transitions[s].end() ? it->second : -1);
+		}
+		oss << " },\n";
+	}
+	oss << "};\n";
+}
+
+
 } // namespace
 
 /**
@@ -114,6 +152,61 @@ void Codegen::write_prologue(const lexer_file::LexFile& lexfile, std::string& tm
 }
 
 /**
+ * @brief Run dense-rows -> default[]-chain -> diff-profiles -> packing.
+ * 
+ * See DenseRows.hpp / DefaultChainBuilder.hpp / DiffProfileBuilder.hpp for
+ * each stage. 
+ */
+PackedTables Codegen::compress(const std::vector<std::unordered_map<char, int>>& transitions, int sink, int initial_state) const
+{
+	DenseRows	dense	= build_dense_rows(transitions, sink);
+
+	DefaultChainBuilder	builder(dense.rows, dense.rows.size());
+	std::vector<int>	parent	= builder.prim(initial_state);
+
+	std::vector<Profile>	diffs	= build_diff_profiles(dense, parent);
+
+	TablePacker	tp;
+	PackedTables	tables	= tp.pack_profiles(diffs);
+	tables.def_	= std::move(parent);
+
+	return tables;
+}
+
+/**
+ * @brief Emit one DFA's transition table, compressed or dense.
+ */
+void Codegen::emit_transition_table(std::ostringstream& oss, const automata::DFA& dfa, bool compression,
+	const std::string& table_root, automata::Stats* stats) const
+{
+	const size_t	nb_states	= dfa.transitions_.size();
+
+	if (compression) {
+		PackedTables	tables	= compress(dfa.transitions_, dfa.sink_, dfa.initial_state_);
+
+		if (stats) {
+			stats->table_size_raw		= nb_states * 256;
+			stats->table_size_packed	= tables.next_.size();
+			stats->compression_ratio	= stats->table_size_raw == 0 ? 0.0f
+				: static_cast<float>(stats->table_size_packed) / static_cast<float>(stats->table_size_raw);
+		}
+
+		emit_int_array(oss, table_root + "base", tables.base_);
+		emit_int_array(oss, table_root + "check", tables.check_);
+		emit_int_array(oss, table_root + "next", tables.next_);
+		emit_int_array(oss, table_root + "default", tables.def_);
+	} else {
+		emit_dense_table(oss, table_root + "table", dfa.transitions_);
+
+		if (stats) {
+			stats->table_size_raw		= nb_states * 256;
+			stats->table_size_packed	= nb_states * 256;
+			stats->compression_ratio	= 0.0f;
+		}
+	}
+}
+
+/**
  * @brief Emit all DFA tables into the @@TABLES@@ marker.
  * 
  * Format:
@@ -126,14 +219,17 @@ void Codegen::write_prologue(const lexer_file::LexFile& lexfile, std::string& tm
  * The runtime pushes them in reverse order so the best rule ends up on top.
  * 
  * trailing_len for each rule is read from lexfile.rules_[rule_id].trailing_length_
- * and set to -1 when the rule has no trailing context.
+ * and set to -1 when the rule has no trailing context or a fixed-length one.
+ * 
+ * Each entry in dfa.trailing_dfas_ gets its own transition table (compressed
+ * or dense, same as the main DFA) plus an accept[] flag array, dispatched at
+ * runtime through yy_trailing_tables[] / yytrailing_accepts[] / yytrailing_sizes[].
  * 
  * @param dfa Deterministic automaton.
  */
 void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& lexfile, std::string& tmpl, automata::Stats* stats)
 {
 	const size_t	nb_states	= dfa.transitions_.size();
-	const size_t	raw_table_size	= nb_states * 256;
 	std::ostringstream	oss;
 
 	// ------------------------------------------------------------------------
@@ -166,60 +262,12 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 			: dfa.start_states_.at(cond));
 	}
 
-	oss << "static int yystart_states[] = {";
-	for (size_t i = 0; i < ids.size(); i++) {
-		oss << (i == 0 ? " " : ", ") << ids[i];
-	}
-	oss << " };\n";
+	emit_int_array(oss, "yystart_states", ids);
 
-	if (lexfile.compression_) {
-		TablePacker	tp;
-
-		auto tables = tp.pack(dfa.transitions_, dfa.sink_);
-		if (stats) {
-			stats->table_size_raw = raw_table_size;
-			stats->table_size_packed = tables.next_.size();
-			stats->compression_ratio = raw_table_size == 0 ? 0.0f : static_cast<float>(stats->table_size_packed) / static_cast<float>(raw_table_size);
-		}
-
-		oss << "static int yybase[] = {";
-		for (size_t i = 0; i < tables.base_.size(); i++) {
-			oss << (i == 0 ? " " : ", ") << tables.base_[i];
-		}
-		oss << " };\n";
-
-		oss << "static int yycheck[] = {";
-		for (size_t i = 0; i < tables.check_.size(); i++) {
-			oss << (i == 0 ? " " : ", ") << tables.check_[i];
-		}
-		oss << " };\n";
-
-		oss << "static int yynext[] = {";
-		for (size_t i = 0; i < tables.next_.size(); i++) {
-			oss << (i == 0 ? " " : ", ") << tables.next_[i];
-		}
-		oss << " };\n";
-	} else {
-		// ------------------------------------------------------------------------
-		// yytable[S][256] - transition table
-		// ------------------------------------------------------------------------
-		oss << "static int yytable[" << nb_states << "][256] = {\n";
-		for (size_t s = 0; s < nb_states; s++) {
-			oss << "\t{";
-			for (int c = 0; c < 256; c++) {
-				auto it = dfa.transitions_[s].find(static_cast<char>(c));
-				oss	<< (c == 0 ? " " : ", ")
-					<< (it != dfa.transitions_[s].end() ? it->second : -1);
-			}
-			oss << " },\n";
-		}
-		oss << "};\n";
-		if (stats) {
-			stats->table_size_raw = raw_table_size;
-			stats->table_size_packed = raw_table_size;
-			stats->compression_ratio = 0.0f;
-		}
-	}
+	// ------------------------------------------------------------------------
+	// Main DFA transition table -- compressed (packing + default[]) or dense
+	// ------------------------------------------------------------------------
+	emit_transition_table(oss, dfa, lexfile.compression_, "yy", stats);
 
 	// ------------------------------------------------------------------------
 	// yyaccept_data[] - flat array of {rule_id, tlen, tdfa_id} entries.
@@ -268,62 +316,21 @@ void Codegen::write_tables(const automata::DFA& dfa, const lexer_file::LexFile& 
 	oss <<"};\n";
 
 
-	oss << "static int yyaccept_offset[" << nb_states << "] = {";
-	for (size_t s = 0; s < nb_states; s++) {
-		oss << (s == 0 ? " " : ", ") << offsets[s];
-	}
-	oss << " };\n";
-
-	oss << "static int yyaccept_count[" << nb_states << "] = {";
-	for (size_t s = 0; s < nb_states; s++) {
-		oss << (s == 0 ? " " : ", ") << counts[s];
-	}
-	oss << " };\n";
+	emit_int_array(oss, "yyaccept_offset", offsets);
+	emit_int_array(oss, "yyaccept_count", counts);
 
 	// ------------------------------------------------------------------------
 	// Per-DFA tables for variable-length trailing context (one set per entry
 	// in DFA::trailing_dfas_).
 	// ------------------------------------------------------------------------
 	for (size_t i = 0; i < dfa.trailing_dfas_.size(); ++i) {
-		auto	dfa_curr	= dfa.trailing_dfas_[i];
-		size_t	size_curr	= dfa_curr.transitions_.size();
+		auto		dfa_curr	= dfa.trailing_dfas_[i];
+		size_t		size_curr	= dfa_curr.transitions_.size();
+		std::string	root		= "yytrailing_" + std::to_string(i) + "_";
 
-		if (lexfile.compression_) {
-			TablePacker	tp;
-
-			auto tables = tp.pack(dfa_curr.transitions_, dfa_curr.sink_);
-
-			oss << "static int yytrailing_" << i << "_base[] = {";
-			for (size_t i = 0; i < tables.base_.size(); i++) {
-				oss << (i == 0 ? " " : ", ") << tables.base_[i];
-			}
-			oss << " };\n";
-
-			oss << "static int yytrailing_" << i << "_check[] = {";
-			for (size_t i = 0; i < tables.check_.size(); i++) {
-				oss << (i == 0 ? " " : ", ") << tables.check_[i];
-			}
-			oss << " };\n";
-
-			oss << "static int yytrailing_" << i << "_next[] = {";
-			for (size_t i = 0; i < tables.next_.size(); i++) {
-				oss << (i == 0 ? " " : ", ") << tables.next_[i];
-			}
-			oss << " };\n";
-		} else {
-
-			oss << "static int yytrailing_" << i << "_table[" << size_curr << "][256] = {\n";
-			for (size_t s = 0; s < size_curr; ++s) {
-				oss << "\t{";
-				for (int c = 0; c < 256; c++) {
-					auto it = dfa_curr.transitions_[s].find(static_cast<char>(c));
-					oss << (c == 0 ? " " : ", ")
-						<< (it != dfa_curr.transitions_[s].end() ? it->second : -1);
-				}
-				oss << " },\n";
-			}
-			oss << "};\n";
-		}
+		// Trailing-context tables don't feed the top-level compression
+		// stats -- those tarck only the main scanner table.
+		emit_transition_table(oss, dfa_curr, lexfile.compression_, root, nullptr);
 
 		oss << "static int yytrailing_" << i << "_accept[" << size_curr << "] = {";
 		for (size_t s = 0; s < size_curr; ++s) {

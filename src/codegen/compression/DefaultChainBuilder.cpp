@@ -58,7 +58,7 @@ int DefaultChainBuilder::sim(int A, int B) {
 	vector<int>&	b_row	= rows_[B];
 	int				score	= 0;
 
-	for (int c = 0; c < alphabet_size_; c++) {
+	for (size_t c = 0; c < alphabet_size_; c++) {
 		if (a_row[c] == b_row[c]) {
 			++score;
 		}
